@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>원가차이 비교 분석</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f6fa;
+        }
+        
+        /* 헤더 */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        
+        .header-subtitle {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+        
+        .nav-buttons {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+        }
+        
+        .nav-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 8px 16px;
+            margin-left: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        
+        .nav-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        /* 컨테이너 */
+        .container {
+            padding: 20px 30px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        /* 선택 섹션 */
+        .selection-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .comparison-type {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .type-btn {
+            padding: 10px 20px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        .type-btn.active {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+        
+        .type-btn:hover {
+            border-color: #667eea;
+        }
+        
+        .selector-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+        
+        .selector-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .selector-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+        }
+        
+        .selector-item select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .btn-compare {
+            margin-top: 15px;
+            padding: 10px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .btn-compare:hover {
+            background: #5568d3;
+        }
+        
+        /* 비교 결과 섹션 */
+        .comparison-results {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .result-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .result-header {
+            font-size: 14px;
+            font-weight: 600;
+            color: #7f8c8d;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .result-label {
+            font-size: 13px;
+            color: #555;
+        }
+        
+        .result-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .result-value.positive {
+            color: #e74c3c;
+        }
+        
+        .result-value.negative {
+            color: #27ae60;
+        }
+        
+        /* 차트 섹션 */
+        .chart-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #95a5a6;
+        }
+        
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            display: none;
+            z-index: 1000;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- 헤더 -->
+    <div class="header">
+        <h1>📊 원가차이 비교 분석</h1>
+        <div class="header-subtitle">제품, 공정, 기간별 원가 차이 비교</div>
+        <div class="nav-buttons">
+            <button class="nav-btn" onclick="window.location.href='dashboard.html'">🏠 홈</button>
+            <button class="nav-btn" onclick="window.location.href='variance_graph_dashboard_v3.html'">🔍 상세분석</button>
+        </div>
+    </div>
+    
+    <!-- 메인 컨텐츠 -->
+    <div class="container">
+        <!-- 선택 섹션 -->
+        <div class="selection-section">
+            <div class="section-title">비교 대상 선택</div>
+            
+            <div class="comparison-type">
+                <button class="type-btn active" onclick="setComparisonType('product')">제품별 비교</button>
+                <button class="type-btn" onclick="setComparisonType('process')">공정별 비교</button>
+                <button class="type-btn" onclick="setComparisonType('period')">기간별 비교</button>
+            </div>
+            
+            <div id="productSelectors" class="selector-grid">
+                <div class="selector-item">
+                    <div class="selector-label">제품 A</div>
+                    <select id="productA"></select>
+                </div>
+                <div class="selector-item">
+                    <div class="selector-label">제품 B</div>
+                    <select id="productB"></select>
+                </div>
+                <div class="selector-item">
+                    <div class="selector-label">제품 C</div>
+                    <select id="productC"></select>
+                </div>
+            </div>
+            
+            <div id="processSelectors" class="selector-grid" style="display: none;">
+                <div class="selector-item">
+                    <div class="selector-label">공정 A</div>
+                    <select id="processA"></select>
+                </div>
+                <div class="selector-item">
+                    <div class="selector-label">공정 B</div>
+                    <select id="processB"></select>
+                </div>
+                <div class="selector-item">
+                    <div class="selector-label">공정 C</div>
+                    <select id="processC"></select>
+                </div>
+            </div>
+            
+            <div id="periodSelectors" class="selector-grid" style="display: none;">
+                <div class="selector-item">
+                    <div class="selector-label">기간 A</div>
+                    <select id="periodA"></select>
+                </div>
+                <div class="selector-item">
+                    <div class="selector-label">기간 B</div>
+                    <select id="periodB"></select>
+                </div>
+                <div class="selector-item">
+                    <div class="selector-label">기간 C</div>
+                    <select id="periodC"></select>
+                </div>
+            </div>
+            
+            <button class="btn-compare" onclick="compareData()">비교하기</button>
+        </div>
+        
+        <!-- 비교 결과 -->
+        <div id="resultsContainer" style="display: none;">
+            <!-- 요약 카드 -->
+            <div class="comparison-results" id="summaryCards">
+                <!-- JavaScript로 동적 생성 -->
+            </div>
+            
+            <!-- 차이 유형별 비교 차트 -->
+            <div class="chart-section">
+                <div class="chart-title">차이 유형별 비교</div>
+                <div id="typeComparisonChart" style="height: 350px;"></div>
+            </div>
+            
+            <!-- 월별 추이 비교 -->
+            <div class="chart-section">
+                <div class="chart-title">월별 원가차이 추이 비교</div>
+                <div id="trendComparisonChart" style="height: 350px;"></div>
+            </div>
+        </div>
+        
+        <!-- 비어있는 상태 -->
+        <div id="emptyState">
+            <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                <div style="font-size: 16px; margin-bottom: 10px;">비교할 대상을 선택하세요</div>
+                <div style="font-size: 13px;">위에서 비교 유형과 대상을 선택한 후 "비교하기" 버튼을 클릭하세요</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 로딩 -->
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>데이터 로딩중...</div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        let currentType = 'product';
+        
+        // 초기화
+        async function init() {
+            await loadFilters();
+        }
+        
+        // 필터 로드
+        async function loadFilters() {
+            try {
+                const response = await fetch(`${API_BASE}/filters`);
+                const data = await response.json();
+                
+                // 제품 셀렉터
+                ['A', 'B', 'C'].forEach(letter => {
+                    const select = document.getElementById(`product${letter}`);
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = '-- 선택 --';
+                    select.appendChild(option);
+                    
+                    data.products.forEach(product => {
+                        const opt = document.createElement('option');
+                        opt.value = product;
+                        opt.textContent = product;
+                        select.appendChild(opt);
+                    });
+                });
+                
+                // 공정 셀렉터
+                ['A', 'B', 'C'].forEach(letter => {
+                    const select = document.getElementById(`process${letter}`);
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = '-- 선택 --';
+                    select.appendChild(option);
+                    
+                    data.work_centers.forEach(wc => {
+                        const opt = document.createElement('option');
+                        opt.value = wc;
+                        opt.textContent = wc;
+                        select.appendChild(opt);
+                    });
+                });
+                
+                // 기간 셀렉터
+                ['A', 'B', 'C'].forEach(letter => {
+                    const select = document.getElementById(`period${letter}`);
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = '-- 선택 --';
+                    select.appendChild(option);
+                    
+                    data.months.forEach(month => {
+                        const opt = document.createElement('option');
+                        opt.value = month;
+                        opt.textContent = month;
+                        select.appendChild(opt);
+                    });
+                });
+            } catch (error) {
+                console.error('필터 로드 실패:', error);
+            }
+        }
+        
+        // 비교 유형 설정
+        function setComparisonType(type) {
+            currentType = type;
+            
+            // 버튼 활성화
+            document.querySelectorAll('.type-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // 셀렉터 표시
+            document.getElementById('productSelectors').style.display = 'none';
+            document.getElementById('processSelectors').style.display = 'none';
+            document.getElementById('periodSelectors').style.display = 'none';
+            
+            if (type === 'product') {
+                document.getElementById('productSelectors').style.display = 'grid';
+            } else if (type === 'process') {
+                document.getElementById('processSelectors').style.display = 'grid';
+            } else if (type === 'period') {
+                document.getElementById('periodSelectors').style.display = 'grid';
+            }
+            
+            // 결과 숨기기
+            document.getElementById('resultsContainer').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'block';
+        }
+        
+        // 데이터 비교
+        async function compareData() {
+            document.getElementById('loading').style.display = 'block';
+            
+            try {
+                let targets = [];
+                
+                if (currentType === 'product') {
+                    targets = [
+                        { type: 'product', value: document.getElementById('productA').value, label: document.getElementById('productA').value },
+                        { type: 'product', value: document.getElementById('productB').value, label: document.getElementById('productB').value },
+                        { type: 'product', value: document.getElementById('productC').value, label: document.getElementById('productC').value }
+                    ].filter(t => t.value);
+                } else if (currentType === 'process') {
+                    targets = [
+                        { type: 'work_center', value: document.getElementById('processA').value, label: document.getElementById('processA').value },
+                        { type: 'work_center', value: document.getElementById('processB').value, label: document.getElementById('processB').value },
+                        { type: 'work_center', value: document.getElementById('processC').value, label: document.getElementById('processC').value }
+                    ].filter(t => t.value);
+                } else if (currentType === 'period') {
+                    targets = [
+                        { type: 'month', value: document.getElementById('periodA').value, label: document.getElementById('periodA').value },
+                        { type: 'month', value: document.getElementById('periodB').value, label: document.getElementById('periodB').value },
+                        { type: 'month', value: document.getElementById('periodC').value, label: document.getElementById('periodC').value }
+                    ].filter(t => t.value);
+                }
+                
+                if (targets.length === 0) {
+                    alert('비교할 대상을 선택해주세요');
+                    return;
+                }
+                
+                const response = await fetch(`${API_BASE}/comparison-data`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ targets })
+                });
+                
+                const data = await response.json();
+                
+                displayComparisonResults(data, targets);
+                
+            } catch (error) {
+                console.error('비교 실패:', error);
+                alert('비교 데이터를 불러올 수 없습니다.');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        // 비교 결과 표시
+        function displayComparisonResults(data, targets) {
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('resultsContainer').style.display = 'block';
+            
+            // 요약 카드 생성
+            const summaryCards = document.getElementById('summaryCards');
+            summaryCards.innerHTML = targets.map((target, index) => {
+                const summary = data.summaries[index];
+                return `
+                    <div class="result-card">
+                        <div class="result-header">${target.label}</div>
+                        <div class="result-item">
+                            <span class="result-label">전체 차이</span>
+                            <span class="result-value ${summary.total_variance > 0 ? 'positive' : 'negative'}">${formatCurrency(summary.total_variance)}</span>
+                        </div>
+                        <div class="result-item">
+                            <span class="result-label">수량차</span>
+                            <span class="result-value">${formatCurrency(summary.quantity_variance)}</span>
+                        </div>
+                        <div class="result-item">
+                            <span class="result-label">단가차</span>
+                            <span class="result-value">${formatCurrency(summary.price_variance)}</span>
+                        </div>
+                        <div class="result-item">
+                            <span class="result-label">생산량차</span>
+                            <span class="result-value">${formatCurrency(summary.production_variance)}</span>
+                        </div>
+                        <div class="result-item">
+                            <span class="result-label">건수</span>
+                            <span class="result-value">${summary.variance_count}건</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            // 차이 유형별 비교 차트
+            const traces = [
+                {
+                    x: targets.map(t => t.label),
+                    y: data.summaries.map(s => s.quantity_variance),
+                    name: '수량차',
+                    type: 'bar',
+                    marker: { color: '#f093fb' }
+                },
+                {
+                    x: targets.map(t => t.label),
+                    y: data.summaries.map(s => s.price_variance),
+                    name: '단가차',
+                    type: 'bar',
+                    marker: { color: '#4facfe' }
+                },
+                {
+                    x: targets.map(t => t.label),
+                    y: data.summaries.map(s => s.production_variance),
+                    name: '생산량차',
+                    type: 'bar',
+                    marker: { color: '#43e97b' }
+                }
+            ];
+            
+            const layout = {
+                barmode: 'group',
+                margin: { t: 20, r: 20, b: 60, l: 60 },
+                yaxis: { title: '원가차이 (원)' },
+                legend: { orientation: 'h', y: -0.2 }
+            };
+            
+            Plotly.newPlot('typeComparisonChart', traces, layout, {responsive: true});
+            
+            // 월별 추이 비교 (기간 비교가 아닌 경우)
+            if (currentType !== 'period' && data.trends && data.trends.length > 0) {
+                const trendTraces = data.trends.map((trend, index) => ({
+                    x: trend.map(d => d.month),
+                    y: trend.map(d => d.total),
+                    name: targets[index].label,
+                    type: 'scatter',
+                    mode: 'lines+markers'
+                }));
+                
+                const trendLayout = {
+                    margin: { t: 20, r: 20, b: 60, l: 60 },
+                    xaxis: { title: '월' },
+                    yaxis: { title: '원가차이 (원)' },
+                    legend: { orientation: 'h', y: -0.2 }
+                };
+                
+                Plotly.newPlot('trendComparisonChart', trendTraces, trendLayout, {responsive: true});
+            } else {
+                document.getElementById('trendComparisonChart').innerHTML = '<div style="text-align: center; padding: 50px; color: #999;">추이 데이터가 없습니다</div>';
+            }
+        }
+        
+        // 유틸리티
+        function formatCurrency(value) {
+            const num = parseFloat(value);
+            if (isNaN(num)) return '₩0';
+            return new Intl.NumberFormat('ko-KR', {
+                style: 'currency',
+                currency: 'KRW',
+                minimumFractionDigits: 0
+            }).format(num);
+        }
+        
+        // 시작
+        init();
+    </script>
+</body>
+</html>

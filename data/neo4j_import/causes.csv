@@ -1,0 +1,8 @@
+code,category,description,responsible_dept
+GOLD_PRICE_UP,MATERIAL,금 시세 상승,구매팀
+SUPPLIER_ISSUE,MATERIAL,공급업체 품질 이슈,구매팀
+OVERUSE,MATERIAL,자재 과다 사용,생산팀
+NEW_WORKER,LABOR,신규 작업자 투입,생산팀
+EQUIPMENT_OLD,OVERHEAD,장비 노후화,설비팀
+LOW_VOLUME,OVERHEAD,조업도 저하,생산관리팀
+YIELD_LOSS,YIELD,수율 저하,품질팀

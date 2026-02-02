@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>원가차이 분석 (버튼 버전 v3)</title>
+    
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .dashboard {
+            display: flex;
+            height: 100vh;
+        }
+        
+        /* 사이드바 */
+        .sidebar {
+            width: 350px;
+            background: white;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        
+        .sidebar-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .sidebar-header h1 {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+        
+        .sidebar-header .status {
+            font-size: 11px;
+            display: inline-block;
+            padding: 3px 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 12px;
+        }
+        
+        .sidebar-header .status.connected {
+            background: #27ae60;
+        }
+        
+        .sidebar-header .status.disconnected {
+            background: #e74c3c;
+        }
+        
+        /* 필터 섹션 */
+        .filter-section {
+            padding: 15px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .filter-group {
+            margin-bottom: 6px;
+        }
+        
+        .filter-group:last-child {
+            margin-bottom: 0;
+        }
+        
+        .filter-group label {
+            display: block;
+            font-size: 10px;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 3px;
+        }
+        
+        .filter-group select {
+            width: 100%;
+            padding: 5px 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 11px;
+            background: white;
+        }
+        
+        .btn-filter {
+            width: 100%;
+            padding: 7px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+        
+        .btn-filter:hover {
+            background: #2980b9;
+        }
+        
+        /* 노드 타입 선택 버튼 */
+        .node-type-btn {
+            flex: 1;
+            padding: 6px;
+            background: #e9ecef;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #495057;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .node-type-btn:hover {
+            background: #dee2e6;
+        }
+        
+        .node-type-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        /* 선택 버튼 */
+        .item-btn {
+            padding: 8px 12px;
+            background: white;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #495057;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .item-btn:hover {
+            background: #e3f2fd;
+            border-color: #2196f3;
+            color: #1976d2;
+            transform: translateY(-2px);
+            box-shadow: 0 3px 8px rgba(33,150,243,0.3);
+        }
+        
+        .item-btn.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+        }
+        
+        /* 전체 원가차이 */
+        .total-section {
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+        }
+        
+        .total-section h2 {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+        
+        .total-section .amount {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        
+        .total-section .count {
+            font-size: 11px;
+            opacity: 0.8;
+        }
+        
+        /* 차이 유형 섹션 */
+        .variance-types {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+        
+        .variance-category {
+            margin-bottom: 8px;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .category-header {
+            padding: 10px 12px;
+            background: #f8f9fa;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        
+        .category-header:hover {
+            background: #e9ecef;
+        }
+        
+        .category-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .category-icon {
+            font-size: 10px;
+            transition: transform 0.3s;
+        }
+        
+        .category-icon.expanded {
+            transform: rotate(90deg);
+        }
+        
+        .category-amount {
+            font-size: 13px;
+            font-weight: bold;
+            color: #e74c3c;
+        }
+        
+        .category-items {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            background: white;
+        }
+        
+        .category-items.show {
+            max-height: 600px;
+        }
+        
+        .order-item {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .order-item:last-child {
+            border-bottom: none;
+        }
+        
+        .order-item:hover {
+            background: #f1f8ff;
+            transform: translateX(3px);
+        }
+        
+        .order-item.selected {
+            background: #e3f2fd;
+            border-left: 3px solid #2196f3;
+        }
+        
+        .order-no {
+            font-weight: 600;
+            color: #0366d6;
+            font-size: 12px;
+            margin-bottom: 3px;
+        }
+        
+        .order-detail {
+            font-size: 10px;
+            color: #6c757d;
+            margin-bottom: 2px;
+        }
+        
+        .order-amount {
+            font-size: 12px;
+            font-weight: bold;
+            color: #e74c3c;
+        }
+        
+        /* 그래프 영역 */
+        .graph-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            position: relative;
+            min-height: 100vh;
+        }
+        
+        .graph-header {
+            padding: 15px 20px;
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .graph-header h2 {
+            font-size: 16px;
+            color: #2c3e50;
+        }
+        
+        .graph-info {
+            font-size: 11px;
+            color: #7f8c8d;
+        }
+        
+        .graph-controls {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-graph-control {
+            padding: 6px 12px;
+            background: #ffffff;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        .btn-graph-control:hover {
+            background: #f8f9fa;
+            border-color: #666;
+        }
+        
+        .btn-graph-control:active {
+            transform: scale(0.95);
+        }
+        
+        #mynetwork {
+            flex: 1;
+            background: #fafafa;
+            width: 100%;
+            min-height: 600px;
+            height: 100%;
+        }
+        
+        
+        /* 로딩 */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #7f8c8d;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <!-- 사이드바 -->
+        <div class="sidebar">
+            <!-- 헤더 -->
+            <div class="sidebar-header">
+                <h1>원가차이 분석</h1>
+                <div style="display: flex; gap: 5px; margin-top: 10px;">
+                    <button onclick="window.location.href='dashboard.html'" style="padding: 5px 10px; font-size: 11px; background: #667eea; color: white; border: none; border-radius: 3px; cursor: pointer;">🏠 홈</button>
+                    <button onclick="window.location.href='comparison.html'" style="padding: 5px 10px; font-size: 11px; background: #667eea; color: white; border: none; border-radius: 3px; cursor: pointer;">📊 비교</button>
+                </div>
+                <span class="status" id="statusBadge">확인중...</span>
+            </div>
+            
+            <!-- 필터 섹션 -->
+            <div class="filter-section">
+                <div class="filter-group">
+                    <label>그래프 시작 노드 선택</label>
+                    <div style="display: flex; gap: 4px; margin-bottom: 10px;">
+                        <button class="node-type-btn active" data-type="product" onclick="switchNodeType('product')">제품</button>
+                        <button class="node-type-btn" data-type="material" onclick="switchNodeType('material')">원자재</button>
+                        <button class="node-type-btn" data-type="workcenter" onclick="switchNodeType('workcenter')">공정</button>
+                    </div>
+                </div>
+                
+                <!-- 제품 버튼 목록 -->
+                <div class="filter-group" id="productButtonsContainer">
+                    <label>제품 선택 (클릭 시 그래프 표시)</label>
+                    <div id="productButtons" style="display: flex; flex-wrap: wrap; gap: 5px; max-height: 250px; overflow-y: auto; padding: 5px; background: #f8f9fa; border-radius: 4px;">
+                        <div style="text-align: center; width: 100%; padding: 20px; color: #999;">로딩중...</div>
+                    </div>
+                </div>
+                
+                <!-- 원자재 버튼 목록 -->
+                <div class="filter-group" id="materialButtonsContainer" style="display: none;">
+                    <label>원자재 선택 (클릭 시 그래프 표시)</label>
+                    <div id="materialButtons" style="display: flex; flex-wrap: wrap; gap: 5px; max-height: 250px; overflow-y: auto; padding: 5px; background: #f8f9fa; border-radius: 4px;">
+                        <div style="text-align: center; width: 100%; padding: 20px; color: #999;">로딩중...</div>
+                    </div>
+                </div>
+                
+                <!-- 공정 버튼 목록 -->
+                <div class="filter-group" id="workcenterButtonsContainer" style="display: none;">
+                    <label>공정 선택 (클릭 시 그래프 표시)</label>
+                    <div id="workcenterButtons" style="display: flex; flex-wrap: wrap; gap: 5px; max-height: 250px; overflow-y: auto; padding: 5px; background: #f8f9fa; border-radius: 4px;">
+                        <div style="text-align: center; width: 100%; padding: 20px; color: #999;">로딩중...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 전체 원가차이 -->
+            <div class="total-section">
+                <h2>전체 원가차이</h2>
+                <div class="amount" id="totalAmount">-</div>
+                <div class="count" id="totalCount">-</div>
+            </div>
+            
+            <!-- 차이 유형별 -->
+            <div class="variance-types">
+                <div class="variance-category">
+                    <div class="category-header" onclick="toggleCategory('quantity')">
+                        <div class="category-title">
+                            <span class="category-icon" id="iconQuantity">▶</span>
+                            <span>수량차 (QUANTITY)</span>
+                        </div>
+                        <span class="category-amount" id="amountQuantity">-</span>
+                    </div>
+                    <div class="category-items" id="itemsQuantity">
+                        <!-- 동적 생성 -->
+                    </div>
+                </div>
+                
+                <div class="variance-category">
+                    <div class="category-header" onclick="toggleCategory('price')">
+                        <div class="category-title">
+                            <span class="category-icon" id="iconPrice">▶</span>
+                            <span>단가차 (PRICE)</span>
+                        </div>
+                        <span class="category-amount" id="amountPrice">-</span>
+                    </div>
+                    <div class="category-items" id="itemsPrice">
+                        <!-- 동적 생성 -->
+                    </div>
+                </div>
+                
+                <div class="variance-category">
+                    <div class="category-header" onclick="toggleCategory('production')">
+                        <div class="category-title">
+                            <span class="category-icon" id="iconProduction">▶</span>
+                            <span>생산량차 (EFFICIENCY/RATE/VOLUME)</span>
+                        </div>
+                        <span class="category-amount" id="amountProduction">-</span>
+                    </div>
+                    <div class="category-items" id="itemsProduction">
+                        <!-- 동적 생성 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 그래프 영역 -->
+        <div class="graph-container">
+            <div class="graph-header">
+                <h2 id="graphTitle">원가차이 그래프</h2>
+                <div class="graph-controls">
+                    <button class="btn-graph-control" onclick="resetToInitial()" title="처음 상태로">↺ 초기화</button>
+                    <button class="btn-graph-control" onclick="focusSelection()" title="선택한 노드만 보기">🔍 포커스</button>
+                </div>
+            </div>
+            <div id="mynetwork"></div>
+            
+            <!-- 로딩 -->
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div>데이터 로딩중...</div>
+            </div>
+            
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        let network;
+        let nodes, edges;
+        let currentFilters = { product: '', material: '', workcenter: '', period: '' };
+        let expandedCategories = new Set();
+        let startNodeType = 'product'; // 'order', 'product', 'material', 'workcenter'
+        let selectedItem = null; // 현재 선택된 항목
+        
+        // 노드 타입 전환
+        function switchNodeType(type) {
+            startNodeType = type;
+            
+            // 버튼 활성화 상태 변경
+            document.querySelectorAll('.node-type-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.type === type) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // 컨테이너 표시/숨김
+            document.getElementById('productButtonsContainer').style.display = (type === 'product') ? 'block' : 'none';
+            document.getElementById('materialButtonsContainer').style.display = (type === 'material') ? 'block' : 'none';
+            document.getElementById('workcenterButtonsContainer').style.display = (type === 'workcenter') ? 'block' : 'none';
+            
+            // 펼쳐진 카테고리 새로고침
+            for (const category of expandedCategories) {
+                loadCategoryItems(category);
+            }
+        }
+        
+        // 항목 선택 및 그래프 로드
+        async function selectItem(type, value) {
+            console.log('=== 항목 선택됨 ===');
+            console.log('타입:', type);
+            console.log('값:', value);
+            
+            selectedItem = value;
+            startNodeType = type;
+            
+            // 해당 컨테이너의 모든 버튼에서 선택 해제
+            const containerMap = {
+                'product': 'productButtons',
+                'material': 'materialButtons',
+                'workcenter': 'workcenterButtons'
+            };
+            
+            const container = document.getElementById(containerMap[type]);
+            container.querySelectorAll('.item-btn').forEach(btn => {
+                btn.classList.remove('selected');
+                if (btn.textContent === value) {
+                    btn.classList.add('selected');
+                    console.log('버튼 선택 표시:', btn.textContent);
+                }
+            });
+            
+            // 그래프 로드 - 즉시 실행!
+            console.log('그래프 로드 시작...');
+            try {
+                await loadOrderGraph(value);
+                console.log('그래프 로드 완료!');
+            } catch (error) {
+                console.error('그래프 로드 실패:', error);
+                alert('그래프 로드 실패: ' + error.message);
+            }
+        }
+        
+        // 초기화
+        async function init() {
+            await checkConnection();
+            await loadFilters();
+            await loadSummary();
+            initGraph();
+        }
+        
+        
+        // API 연결 확인
+        async function checkConnection() {
+            try {
+                const response = await fetch(`${API_BASE}/overview`);
+                if (response.ok) {
+                    document.getElementById('statusBadge').textContent = '✓ 연결됨';
+                    document.getElementById('statusBadge').className = 'status connected';
+                } else {
+                    throw new Error('Connection failed');
+                }
+            } catch (error) {
+                document.getElementById('statusBadge').textContent = '✗ 연결 끊김';
+                document.getElementById('statusBadge').className = 'status disconnected';
+                console.error('API 연결 실패:', error);
+            }
+        }
+        
+        // 필터 옵션 로드
+        async function loadFilters() {
+            try {
+                const response = await fetch(`${API_BASE}/filters`);
+                const data = await response.json();
+                
+                console.log('필터 데이터 로드 완료:', data);
+                
+                // 제품 버튼 생성
+                const productContainer = document.getElementById('productButtons');
+                productContainer.innerHTML = ''; // 로딩 메시지 제거
+                
+                if (data.products && data.products.length > 0) {
+                    data.products.forEach(p => {
+                        const btn = document.createElement('button');
+                        btn.className = 'item-btn';
+                        btn.textContent = p;
+                        btn.onclick = () => selectItem('product', p);
+                        productContainer.appendChild(btn);
+                    });
+                    console.log(`${data.products.length}개 제품 버튼 생성 완료`);
+                } else {
+                    productContainer.innerHTML = '<div style="text-align: center; width: 100%; color: #999;">제품 데이터 없음</div>';
+                }
+                
+                // 공정 버튼 생성
+                const workcenterContainer = document.getElementById('workcenterButtons');
+                workcenterContainer.innerHTML = '';
+                
+                if (data.work_centers && data.work_centers.length > 0) {
+                    data.work_centers.forEach(wc => {
+                        const btn = document.createElement('button');
+                        btn.className = 'item-btn';
+                        btn.textContent = wc;
+                        btn.onclick = () => selectItem('workcenter', wc);
+                        workcenterContainer.appendChild(btn);
+                    });
+                    console.log(`${data.work_centers.length}개 공정 버튼 생성 완료`);
+                } else {
+                    workcenterContainer.innerHTML = '<div style="text-align: center; width: 100%; color: #999;">공정 데이터 없음</div>';
+                }
+                
+                // 원자재 버튼 생성
+                const materialContainer = document.getElementById('materialButtons');
+                materialContainer.innerHTML = '';
+                
+                if (data.materials && data.materials.length > 0) {
+                    data.materials.slice(0, 30).forEach(m => {
+                        const btn = document.createElement('button');
+                        btn.className = 'item-btn';
+                        btn.textContent = m.id;
+                        btn.title = m.name;
+                        btn.onclick = () => selectItem('material', m.id);
+                        materialContainer.appendChild(btn);
+                    });
+                    console.log(`${Math.min(30, data.materials.length)}개 원자재 버튼 생성 완료`);
+                } else {
+                    materialContainer.innerHTML = '<div style="text-align: center; width: 100%; color: #999;">원자재 데이터 없음</div>';
+                }
+            } catch (error) {
+                console.error('필터 로드 실패:', error);
+                alert('필터 로드 실패: ' + error.message);
+            }
+        }
+        
+        // 요약 정보 로드
+        async function loadSummary(filters = {}) {
+            try {
+                const response = await fetch(`${API_BASE}/filtered_summary`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(filters)
+                });
+                const data = await response.json();
+                
+                // 전체 원가차이
+                document.getElementById('totalAmount').textContent = 
+                    formatCurrency(data.total_variance);
+                document.getElementById('totalCount').textContent = 
+                    `${data.total_count}건`;
+                
+                // 차이 유형별 금액
+                const typeMap = {
+                    'QUANTITY': 'Quantity',
+                    'PRICE': 'Price',
+                    'EFFICIENCY': 'Production',
+                    'RATE': 'Production',
+                    'VOLUME': 'Production'
+                };
+                
+                const amounts = { Quantity: 0, Price: 0, Production: 0 };
+                
+                data.by_type.forEach(item => {
+                    const category = typeMap[item.variance_type] || 'Production';
+                    amounts[category] += parseFloat(item.total_variance);
+                });
+                
+                document.getElementById('amountQuantity').textContent = 
+                    formatCurrency(amounts.Quantity);
+                document.getElementById('amountPrice').textContent = 
+                    formatCurrency(amounts.Price);
+                document.getElementById('amountProduction').textContent = 
+                    formatCurrency(amounts.Production);
+                    
+            } catch (error) {
+                console.error('요약 로드 실패:', error);
+            }
+        }
+        
+        // 필터 적용 (목록만 필터링)
+        async function applyFilters() {
+            currentFilters = {
+                month: document.getElementById('filterPeriod').value
+            };
+            
+            await loadSummary(currentFilters);
+            
+            // 펼쳐진 카테고리 새로고침
+            for (const category of expandedCategories) {
+                await loadCategoryItems(category);
+            }
+        }
+        
+        // 카테고리 토글
+        async function toggleCategory(category) {
+            const items = document.getElementById(`items${capitalize(category)}`);
+            const icon = document.getElementById(`icon${capitalize(category)}`);
+            
+            if (expandedCategories.has(category)) {
+                // 접기
+                items.classList.remove('show');
+                icon.classList.remove('expanded');
+                expandedCategories.delete(category);
+            } else {
+                // 펼치기
+                items.classList.add('show');
+                icon.classList.add('expanded');
+                expandedCategories.add(category);
+                await loadCategoryItems(category);
+            }
+        }
+        
+        // 카테고리 항목 로드
+        async function loadCategoryItems(category) {
+            const typeMap = {
+                'quantity': 'QUANTITY',
+                'price': 'PRICE',
+                'production': ['EFFICIENCY', 'RATE', 'VOLUME']
+            };
+            
+            const varianceTypes = Array.isArray(typeMap[category]) 
+                ? typeMap[category] 
+                : [typeMap[category]];
+            
+            const container = document.getElementById(`items${capitalize(category)}`);
+            container.innerHTML = '<div style="padding:10px; text-align:center; color:#7f8c8d; font-size:11px;">로딩중...</div>';
+            
+            try {
+                // 모든 타입에 대해 데이터 가져오기
+                const allOrders = [];
+                
+                for (const type of varianceTypes) {
+                    const response = await fetch(`${API_BASE}/variances/by-type?type=${type}`);
+                    const data = await response.json();
+                    allOrders.push(...data);
+                }
+                
+                // 정렬 (절대값 기준)
+                allOrders.sort((a, b) => Math.abs(b.total_variance) - Math.abs(a.total_variance));
+                
+                // HTML 생성 - 항상 생산오더별로 표시
+                if (allOrders.length === 0) {
+                    container.innerHTML = '<div style="padding:10px; text-align:center; color:#7f8c8d; font-size:11px;">데이터 없음</div>';
+                } else {
+                    // 생산오더별로 표시 (그룹화하지 않음)
+                    container.innerHTML = allOrders.map(order => `
+                        <div class="order-item" onclick="loadOrderGraphAsOrder('${order.order_no}', event)">
+                            <div class="order-no">${order.order_no}</div>
+                            <div class="order-detail">제품: ${order.product || 'N/A'} | 공정: ${order.work_center || 'N/A'}</div>
+                            <div class="order-amount">${formatCurrency(order.total_variance)}</div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('항목 로드 실패:', error);
+                container.innerHTML = '<div style="padding:10px; text-align:center; color:#e74c3c; font-size:11px;">로드 실패</div>';
+            }
+        }
+        
+        // 노드 그래프 로드 (다양한 타입 지원)
+        async function loadOrderGraph(identifier, evt) {
+            console.log('=== loadOrderGraph 호출 ===');
+            console.log('identifier:', identifier);
+            console.log('startNodeType:', startNodeType);
+            
+            document.getElementById('loading').style.display = 'block';
+            
+            // 타이틀 설정
+            const titleMap = {
+                'order': '생산오더',
+                'product': '제품',
+                'material': '원자재',
+                'workcenter': '공정'
+            };
+            document.getElementById('graphTitle').textContent = `${titleMap[startNodeType]}: ${identifier}`;
+            
+            // 선택 표시
+            document.querySelectorAll('.order-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            if (evt) {
+                evt.target.closest('.order-item').classList.add('selected');
+            }
+            
+            try {
+                let response;
+                const endpointMap = {
+                    'order': `production-order/${encodeURIComponent(identifier)}`,
+                    'product': `product/${encodeURIComponent(identifier)}`,
+                    'material': `material/${encodeURIComponent(identifier)}`,
+                    'workcenter': `workcenter/${encodeURIComponent(identifier)}`
+                };
+                
+                const endpoint = `${API_BASE}/${endpointMap[startNodeType]}/graph`;
+                console.log('API 호출:', endpoint);
+                
+                response = await fetch(endpoint);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                console.log('Graph data received:', data);
+                updateGraph(data.nodes, data.edges);
+                
+                // 초기 상태 저장
+                saveInitialState(data.nodes, data.edges);
+            } catch (error) {
+                console.error('그래프 로드 실패:', error);
+                alert('그래프를 로드할 수 없습니다: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        // 생산오더로 그래프 로드 (아래 목록에서 클릭 시)
+        async function loadOrderGraphAsOrder(orderNo, evt) {
+            console.log('생산오더 클릭:', orderNo);
+            // 임시로 startNodeType을 order로 변경
+            const originalType = startNodeType;
+            startNodeType = 'order';
+            await loadOrderGraph(orderNo, evt);
+            startNodeType = originalType; // 원래 타입으로 복원
+        }
+        
+        // 그래프 초기화
+        function initGraph() {
+            console.log('Initializing graph...');
+            const container = document.getElementById('mynetwork');
+            
+            if (!container) {
+                console.error('Graph container not found!');
+                return;
+            }
+            
+            if (typeof vis === 'undefined') {
+                console.error('vis.js library not loaded!');
+                return;
+            }
+            
+            nodes = new vis.DataSet([]);
+            edges = new vis.DataSet([]);
+            
+            const data = { nodes, edges };
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    font: {
+                        size: 12,
+                        face: 'Segoe UI'
+                    },
+                    borderWidth: 2,
+                    shadow: true
+                },
+                edges: {
+                    width: 2,
+                    arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+                    smooth: { type: 'continuous' },
+                    font: { size: 10, align: 'middle' }
+                },
+                physics: {
+                    enabled: true,
+                    stabilization: { 
+                        iterations: 150,
+                        updateInterval: 25
+                    },
+                    barnesHut: {
+                        gravitationalConstant: -5000,
+                        centralGravity: 0.3,
+                        springLength: 200,
+                        springConstant: 0.05,
+                        damping: 0.5,
+                        avoidOverlap: 0.2
+                    },
+                    maxVelocity: 50,
+                    minVelocity: 0.75,
+                    solver: 'barnesHut'
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 200
+                }
+            };
+            
+            network = new vis.Network(container, data, options);
+            console.log('Network object created:', network);
+            
+            // 이벤트 리스너
+            network.on('doubleClick', handleNodeDoubleClick);
+            network.on('click', handleNodeClick);
+            
+            document.getElementById('loading').style.display = 'none';
+            console.log('Graph initialized successfully');
+        }
+        
+        // 그래프 업데이트
+        function updateGraph(newNodes, newEdges) {
+            console.log('Updating graph with nodes:', newNodes.length, 'edges:', newEdges.length);
+            
+            // 너무 많은 노드 경고
+            if (newNodes.length > 50) {
+                console.warn('⚠️ 노드가 많습니다 (' + newNodes.length + '개). 성능 저하 가능.');
+                document.getElementById('graphTitle').textContent += ' (노드 ' + newNodes.length + '개)';
+            }
+            
+            const container = document.getElementById('mynetwork');
+            console.log('Container size:', {
+                width: container.offsetWidth,
+                height: container.offsetHeight,
+                display: window.getComputedStyle(container).display
+            });
+            
+            nodes.clear();
+            edges.clear();
+            
+            nodes.add(newNodes);
+            edges.add(newEdges);
+            
+            console.log('Nodes added to dataset:', nodes.length);
+            console.log('Edges added to dataset:', edges.length);
+            
+            // 노드 수가 많으면 물리 엔진 비활성화
+            if (newNodes.length > 30) {
+                network.setOptions({
+                    physics: {
+                        enabled: false
+                    }
+                });
+                console.log('물리 엔진 비활성화 (노드 수:', newNodes.length + ')');
+            } else {
+                network.setOptions({
+                    physics: {
+                        enabled: true
+                    }
+                });
+            }
+            
+            // 그래프를 화면에 맞추고 약간 줌아웃
+            setTimeout(() => {
+                network.fit({
+                    animation: {
+                        duration: 1000,
+                        easingFunction: 'easeInOutQuad'
+                    }
+                });
+                console.log('Network.fit() called, scale:', network.getScale());
+                
+                // 약간 줌아웃하여 전체가 보이도록
+                setTimeout(() => {
+                    const scale = network.getScale();
+                    network.moveTo({
+                        scale: scale * 0.8,
+                        animation: {
+                            duration: 500,
+                            easingFunction: 'easeInOutQuad'
+                        }
+                    });
+                    console.log('Zoomed out to scale:', scale * 0.8);
+                }, 1000);
+            }, 100);
+            
+            console.log('Graph updated successfully');
+        }
+        
+        // 노드 더블클릭 - 확장
+        async function handleNodeDoubleClick(params) {
+            if (params.nodes.length === 0) return;
+            
+            const nodeId = params.nodes[0];
+            document.getElementById('loading').style.display = 'block';
+            
+            try {
+                const response = await fetch(`${API_BASE}/node/${nodeId}/expand`);
+                const data = await response.json();
+                
+                // 기존 노드/엣지에 추가
+                data.nodes.forEach(node => {
+                    if (!nodes.get(node.id)) {
+                        nodes.add(node);
+                    }
+                });
+                
+                data.edges.forEach(edge => {
+                    if (!edges.get(edge.id)) {
+                        edges.add(edge);
+                    }
+                });
+                
+                document.getElementById('graphInfo').textContent = 
+                    `${data.nodes.length}개 노드 추가됨`;
+                    
+            } catch (error) {
+                console.error('노드 확장 실패:', error);
+                alert('노드를 확장할 수 없습니다.');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        // 노드 클릭 - 콘솔에 정보 출력
+        function handleNodeClick(params) {
+            if (params.nodes.length === 0) {
+                return;
+            }
+            
+            const nodeId = params.nodes[0];
+            const node = nodes.get(nodeId);
+            
+            if (!node) return;
+            
+            // 콘솔에만 출력
+            console.log(`${node.type}: ${node.label}`, node.properties);
+        }
+        
+        // 초기화 버튼 - 처음 상태로
+        let initialGraphData = null;
+        
+        function saveInitialState(graphNodes, graphEdges) {
+            initialGraphData = {
+                nodes: JSON.parse(JSON.stringify(graphNodes)),
+                edges: JSON.parse(JSON.stringify(graphEdges))
+            };
+        }
+        
+        function resetToInitial() {
+            if (!initialGraphData) {
+                alert('초기 상태가 저장되지 않았습니다.');
+                return;
+            }
+            
+            nodes.clear();
+            edges.clear();
+            nodes.add(initialGraphData.nodes);
+            edges.add(initialGraphData.edges);
+            
+            network.fit();
+            document.getElementById('graphInfo').textContent = '그래프가 초기화되었습니다';
+        }
+        
+        // 포커스 버튼 - 선택한 노드만 보기
+        function focusSelection() {
+            const selected = network.getSelectedNodes();
+            
+            if (selected.length === 0) {
+                alert('노드를 먼저 선택해주세요 (클릭)');
+                return;
+            }
+            
+            const selectedNodeId = selected[0];
+            const selectedNode = nodes.get(selectedNodeId);
+            
+            // 선택한 노드와 직접 연결된 노드 찾기
+            const connectedEdges = edges.get({
+                filter: edge => edge.from === selectedNodeId || edge.to === selectedNodeId
+            });
+            
+            const connectedNodeIds = new Set([selectedNodeId]);
+            connectedEdges.forEach(edge => {
+                connectedNodeIds.add(edge.from);
+                connectedNodeIds.add(edge.to);
+            });
+            
+            // 연결된 노드만 남기고 나머지 숨기기
+            const allNodes = nodes.get();
+            allNodes.forEach(node => {
+                if (connectedNodeIds.has(node.id)) {
+                    nodes.update({ id: node.id, hidden: false });
+                } else {
+                    nodes.update({ id: node.id, hidden: true });
+                }
+            });
+            
+            const allEdges = edges.get();
+            allEdges.forEach(edge => {
+                if (connectedNodeIds.has(edge.from) && connectedNodeIds.has(edge.to)) {
+                    edges.update({ id: edge.id, hidden: false });
+                } else {
+                    edges.update({ id: edge.id, hidden: true });
+                }
+            });
+            
+            setTimeout(() => {
+                network.fit();
+            }, 100);
+            
+            document.getElementById('graphInfo').textContent = `${selectedNode.label} 중심으로 포커스`;
+        }
+        
+        // 유틸리티
+        function formatCurrency(value) {
+            const num = parseFloat(value);
+            if (isNaN(num)) return '-';
+            return new Intl.NumberFormat('ko-KR', {
+                style: 'currency',
+                currency: 'KRW',
+                minimumFractionDigits: 0
+            }).format(num);
+        }
+        
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+        
+        // 시작
+        init();
+    </script>
+</body>
+</html>
