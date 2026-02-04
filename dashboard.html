@@ -448,34 +448,20 @@
         async function loadFilters() {
             try {
                 const response = await fetch(`${API_BASE}/filters`);
+                if (!response.ok) return;
                 const data = await response.json();
+                const products = Array.isArray(data.products) ? data.products : [];
+                const workCenters = Array.isArray(data.work_centers) ? data.work_centers : [];
+                const months = Array.isArray(data.months) ? data.months : [];
                 
-                // 제품 필터
                 const productSelect = document.getElementById('filterProduct');
-                data.products.forEach(product => {
-                    const option = document.createElement('option');
-                    option.value = product;
-                    option.textContent = product;
-                    productSelect.appendChild(option);
-                });
+                if (productSelect) products.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; productSelect.appendChild(o); });
                 
-                // 공정 필터
                 const processSelect = document.getElementById('filterProcess');
-                data.work_centers.forEach(wc => {
-                    const option = document.createElement('option');
-                    option.value = wc;
-                    option.textContent = wc;
-                    processSelect.appendChild(option);
-                });
+                if (processSelect) workCenters.forEach(wc => { const o = document.createElement('option'); o.value = wc; o.textContent = wc; processSelect.appendChild(o); });
                 
-                // 기간 필터
                 const periodSelect = document.getElementById('filterPeriod');
-                data.months.forEach(month => {
-                    const option = document.createElement('option');
-                    option.value = month;
-                    option.textContent = month;
-                    periodSelect.appendChild(option);
-                });
+                if (periodSelect) months.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; periodSelect.appendChild(o); });
             } catch (error) {
                 console.error('필터 로드 실패:', error);
             }
@@ -483,30 +469,31 @@
         
         // 대시보드 데이터 로드
         async function loadDashboardData() {
-            document.getElementById('loading').style.display = 'block';
-            
+            const loadingEl = document.getElementById('loading');
+            if (loadingEl) loadingEl.style.display = 'block';
             try {
                 const product = document.getElementById('filterProduct')?.value || '';
                 const workCenter = document.getElementById('filterProcess')?.value || '';
                 const month = document.getElementById('filterPeriod')?.value || '';
-                
                 const response = await fetch(`${API_BASE}/dashboard-data`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ product, work_center: workCenter, month })
                 });
-                
-                const data = await response.json();
-                
-                updateKPIs(data.summary);
+                const data = await response.json().catch(() => null);
+                if (!data) { alert('데이터를 불러올 수 없습니다.'); return; }
+                const summary = data.summary || {
+                    total_variance: 0, variance_count: 0, quantity_variance: 0, quantity_count: 0,
+                    price_variance: 0, price_count: 0, production_variance: 0, production_count: 0
+                };
+                updateKPIs(summary);
                 updateCharts(data);
                 updateTopOrders(data.top_orders);
-                
             } catch (error) {
                 console.error('대시보드 로드 실패:', error);
                 alert('데이터를 불러올 수 없습니다.');
             } finally {
-                document.getElementById('loading').style.display = 'none';
+                if (loadingEl) loadingEl.style.display = 'none';
             }
         }
         
@@ -571,7 +558,7 @@
             if (data.by_type && data.by_type.length > 0) {
                 const pieData = [{
                     values: data.by_type.map(d => Math.abs(d.amount)),
-                    labels: data.by_type.map(d => d.type),
+                    labels: data.by_type.map(d => d.element || d.type),
                     type: 'pie',
                     marker: {
                         colors: ['#f093fb', '#4facfe', '#43e97b']

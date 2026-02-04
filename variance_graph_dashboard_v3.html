@@ -547,6 +547,10 @@
             
             selectedItem = value;
             startNodeType = type;
+            // 선택된 제품이면 요약 금액 필터 반영
+            if (type === 'product') {
+                await loadSummary({ product: value });
+            }
             
             // 해당 컨테이너의 모든 버튼에서 선택 해제
             const containerMap = {
@@ -575,98 +579,120 @@
             }
         }
         
-        // 초기화
+        // 초기화 (실패해도 로딩 표시 해제)
         async function init() {
-            await checkConnection();
-            await loadFilters();
-            await loadSummary();
-            initGraph();
+            const loadingEl = document.getElementById('loading');
+            try {
+                await checkConnection();
+                await loadFilters();
+                await loadSummary();
+                initGraph();
+            } catch (e) {
+                console.error('초기화 오류:', e);
+            } finally {
+                if (loadingEl) loadingEl.style.display = 'none';
+            }
         }
         
         
-        // API 연결 확인
+        // API 연결 확인 (타임아웃으로 "확인중..." 무한 대기 방지)
         async function checkConnection() {
+            const badge = document.getElementById('statusBadge');
             try {
-                const response = await fetch(`${API_BASE}/overview`);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                const response = await fetch(`${API_BASE}/overview`, { signal: controller.signal });
+                clearTimeout(timeoutId);
                 if (response.ok) {
-                    document.getElementById('statusBadge').textContent = '✓ 연결됨';
-                    document.getElementById('statusBadge').className = 'status connected';
+                    if (badge) { badge.textContent = '✓ 연결됨'; badge.className = 'status connected'; }
                 } else {
-                    throw new Error('Connection failed');
+                    if (badge) { badge.textContent = '✗ 연결 끊김'; badge.className = 'status disconnected'; }
                 }
             } catch (error) {
-                document.getElementById('statusBadge').textContent = '✗ 연결 끊김';
-                document.getElementById('statusBadge').className = 'status disconnected';
+                if (badge) { badge.textContent = '✗ 연결 끊김'; badge.className = 'status disconnected'; }
                 console.error('API 연결 실패:', error);
             }
         }
         
-        // 필터 옵션 로드
+        // 필터 옵션 로드 (실패해도 "로딩중" 제거)
+        function setNoData(containerId, msg) {
+            const el = document.getElementById(containerId);
+            if (el) el.innerHTML = '<div style="text-align: center; width: 100%; padding: 20px; color: #999;">' + (msg || '데이터 없음') + '</div>';
+        }
         async function loadFilters() {
+            const productContainer = document.getElementById('productButtons');
+            const workcenterContainer = document.getElementById('workcenterButtons');
+            const materialContainer = document.getElementById('materialButtons');
             try {
                 const response = await fetch(`${API_BASE}/filters`);
-                const data = await response.json();
-                
-                console.log('필터 데이터 로드 완료:', data);
-                
-                // 제품 버튼 생성
-                const productContainer = document.getElementById('productButtons');
-                productContainer.innerHTML = ''; // 로딩 메시지 제거
-                
-                if (data.products && data.products.length > 0) {
-                    data.products.forEach(p => {
-                        const btn = document.createElement('button');
-                        btn.className = 'item-btn';
-                        btn.textContent = p;
-                        btn.onclick = () => selectItem('product', p);
-                        productContainer.appendChild(btn);
-                    });
-                    console.log(`${data.products.length}개 제품 버튼 생성 완료`);
-                } else {
-                    productContainer.innerHTML = '<div style="text-align: center; width: 100%; color: #999;">제품 데이터 없음</div>';
+                const data = await response.json().catch(() => ({}));
+                const products = Array.isArray(data.products) ? data.products : [];
+                const workCenters = Array.isArray(data.work_centers) ? data.work_centers : [];
+                const materials = Array.isArray(data.materials) ? data.materials : [];
+                if (productContainer) {
+                    productContainer.innerHTML = '';
+                    if (products.length > 0) {
+                        products.forEach(p => {
+                            const btn = document.createElement('button');
+                            btn.className = 'item-btn';
+                            btn.textContent = p;
+                            btn.onclick = () => selectItem('product', p);
+                            productContainer.appendChild(btn);
+                        });
+                    } else {
+                        setNoData('productButtons', '제품 데이터 없음');
+                    }
                 }
-                
-                // 공정 버튼 생성
-                const workcenterContainer = document.getElementById('workcenterButtons');
-                workcenterContainer.innerHTML = '';
-                
-                if (data.work_centers && data.work_centers.length > 0) {
-                    data.work_centers.forEach(wc => {
-                        const btn = document.createElement('button');
-                        btn.className = 'item-btn';
-                        btn.textContent = wc;
-                        btn.onclick = () => selectItem('workcenter', wc);
-                        workcenterContainer.appendChild(btn);
-                    });
-                    console.log(`${data.work_centers.length}개 공정 버튼 생성 완료`);
-                } else {
-                    workcenterContainer.innerHTML = '<div style="text-align: center; width: 100%; color: #999;">공정 데이터 없음</div>';
+                if (workcenterContainer) {
+                    workcenterContainer.innerHTML = '';
+                    if (workCenters.length > 0) {
+                        workCenters.forEach(wc => {
+                            const btn = document.createElement('button');
+                            btn.className = 'item-btn';
+                            btn.textContent = wc;
+                            btn.onclick = () => selectItem('workcenter', wc);
+                            workcenterContainer.appendChild(btn);
+                        });
+                    } else {
+                        setNoData('workcenterButtons', '공정 데이터 없음');
+                    }
                 }
-                
-                // 원자재 버튼 생성
-                const materialContainer = document.getElementById('materialButtons');
-                materialContainer.innerHTML = '';
-                
-                if (data.materials && data.materials.length > 0) {
-                    data.materials.slice(0, 30).forEach(m => {
-                        const btn = document.createElement('button');
-                        btn.className = 'item-btn';
-                        btn.textContent = m.id;
-                        btn.title = m.name;
-                        btn.onclick = () => selectItem('material', m.id);
-                        materialContainer.appendChild(btn);
-                    });
-                    console.log(`${Math.min(30, data.materials.length)}개 원자재 버튼 생성 완료`);
-                } else {
-                    materialContainer.innerHTML = '<div style="text-align: center; width: 100%; color: #999;">원자재 데이터 없음</div>';
+                if (materialContainer) {
+                    materialContainer.innerHTML = '';
+                    if (materials.length > 0) {
+                        materials.slice(0, 30).forEach(m => {
+                            const btn = document.createElement('button');
+                            btn.className = 'item-btn';
+                            btn.textContent = (m && m.id) ? m.id : m;
+                            btn.title = (m && m.name) ? m.name : '';
+                            btn.onclick = () => selectItem('material', (m && m.id) ? m.id : m);
+                            materialContainer.appendChild(btn);
+                        });
+                    } else {
+                        setNoData('materialButtons', '원자재 데이터 없음');
+                    }
                 }
             } catch (error) {
                 console.error('필터 로드 실패:', error);
-                alert('필터 로드 실패: ' + error.message);
+                setNoData('productButtons', '로드 실패');
+                setNoData('workcenterButtons', '로드 실패');
+                setNoData('materialButtons', '로드 실패');
             }
         }
         
-        // 요약 정보 로드
+        // 요약 정보 로드 (실패해도 "-" 대신 "₩0" 등으로 표시)
+        function setSummaryDefaults() {
+            const totalAmount = document.getElementById('totalAmount');
+            const totalCount = document.getElementById('totalCount');
+            const amountQuantity = document.getElementById('amountQuantity');
+            const amountPrice = document.getElementById('amountPrice');
+            const amountProduction = document.getElementById('amountProduction');
+            if (totalAmount) totalAmount.textContent = '₩0';
+            if (totalCount) totalCount.textContent = '0건';
+            if (amountQuantity) amountQuantity.textContent = '₩0';
+            if (amountPrice) amountPrice.textContent = '₩0';
+            if (amountProduction) amountProduction.textContent = '₩0';
+        }
         async function loadSummary(filters = {}) {
             try {
                 const response = await fetch(`${API_BASE}/filtered_summary`, {
@@ -674,34 +700,30 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(filters)
                 });
-                const data = await response.json();
-                
-                // 전체 원가차이
-                document.getElementById('totalAmount').textContent = 
-                    formatCurrency(data.total_variance);
-                document.getElementById('totalCount').textContent = 
-                    `${data.total_count}건`;
-                
-                // 원가 요소별 금액 (재료비, 노무비, 경비)
+                const data = await response.json().catch(() => null);
+                if (!data) { setSummaryDefaults(); return; }
+                const totalV = data.total_variance != null ? data.total_variance : 0;
+                const totalC = data.total_count != null ? data.total_count : 0;
+                const totalAmount = document.getElementById('totalAmount');
+                const totalCount = document.getElementById('totalCount');
+                if (totalAmount) totalAmount.textContent = formatCurrency(totalV);
+                if (totalCount) totalCount.textContent = totalC + '건';
                 const amounts = { MATERIAL: 0, LABOR: 0, OVERHEAD: 0 };
-                
-                data.by_type.forEach(item => {
-                    const element = item.cost_element;
-                    if (amounts.hasOwnProperty(element)) {
+                (Array.isArray(data.by_type) ? data.by_type : []).forEach(item => {
+                    const element = item && item.cost_element;
+                    if (element && amounts.hasOwnProperty(element)) {
                         amounts[element] += parseFloat(item.total_variance || 0);
                     }
                 });
-                
-                // 재료비차이, 노무비차이, 경비차이로 표시
-                document.getElementById('amountQuantity').textContent = 
-                    formatCurrency(amounts.MATERIAL);
-                document.getElementById('amountPrice').textContent = 
-                    formatCurrency(amounts.LABOR);
-                document.getElementById('amountProduction').textContent = 
-                    formatCurrency(amounts.OVERHEAD);
-                    
+                const amountQuantity = document.getElementById('amountQuantity');
+                const amountPrice = document.getElementById('amountPrice');
+                const amountProduction = document.getElementById('amountProduction');
+                if (amountQuantity) amountQuantity.textContent = formatCurrency(amounts.MATERIAL);
+                if (amountPrice) amountPrice.textContent = formatCurrency(amounts.LABOR);
+                if (amountProduction) amountProduction.textContent = formatCurrency(amounts.OVERHEAD);
             } catch (error) {
                 console.error('요약 로드 실패:', error);
+                setSummaryDefaults();
             }
         }
         
@@ -888,24 +910,23 @@
                     enabled: true,
                     stabilization: { 
                         enabled: true,
-                        iterations: 200,
+                        iterations: 120,
                         updateInterval: 50,
                         onlyDynamicEdges: false,
                         fit: true
                     },
                     barnesHut: {
-                        gravitationalConstant: -2000,
+                        gravitationalConstant: -1200,
                         centralGravity: 0.1,
-                        springLength: 150,
-                        springConstant: 0.04,
-                        damping: 0.7,
-                        avoidOverlap: 0.3
+                        springLength: 180,
+                        springConstant: 0.03,
+                        damping: 0.8,
+                        avoidOverlap: 0.5
                     },
                     maxVelocity: 30,
                     minVelocity: 0.1,
                     solver: 'barnesHut',
                     timestep: 0.5
-                    solver: 'barnesHut'
                 },
                 interaction: {
                     hover: true,
@@ -915,16 +936,60 @@
             
             network = new vis.Network(container, data, options);
             console.log('Network object created:', network);
+            applyPhysicsStabilization(120);
             
             // 이벤트 리스너
             network.on('doubleClick', handleNodeDoubleClick);
             network.on('click', handleNodeClick);
-            
-            document.getElementById('loading').style.display = 'none';
+            const loadingEl = document.getElementById('loading');
+            if (loadingEl) loadingEl.style.display = 'none';
             console.log('Graph initialized successfully');
         }
         
         // 그래프 업데이트
+        const TYPE_GLUE_NODE_LIMIT = 80;
+        const TYPE_GLUE_MAX_PER_TYPE = 20;
+        
+        function applyPhysicsStabilization(iterations) {
+            if (!network) return;
+            network.setOptions({
+                physics: { enabled: true, stabilization: { enabled: true, iterations } }
+            });
+            network.stabilize(iterations);
+        }
+
+        function addTypeGlueEdges() {
+            if (!nodes || !edges) return;
+            const allNodes = nodes.get().filter(n => !n.hidden);
+            if (allNodes.length > TYPE_GLUE_NODE_LIMIT) return;
+            const byType = new Map();
+            allNodes.forEach(node => {
+                const type = node.type || 'Unknown';
+                if (!byType.has(type)) byType.set(type, []);
+                byType.get(type).push(node.id);
+            });
+            byType.forEach((ids, type) => {
+                if (ids.length < 2) return;
+                const limited = ids.slice(0, TYPE_GLUE_MAX_PER_TYPE);
+                for (let i = 1; i < limited.length; i++) {
+                    const from = limited[i - 1];
+                    const to = limited[i];
+                    const glueId = `glue_${type}_${from}_${to}`;
+                    if (edges.get(glueId)) continue;
+                    edges.add({
+                        id: glueId,
+                        from,
+                        to,
+                        hidden: true,
+                        physics: true,
+                        color: 'rgba(0,0,0,0)',
+                        width: 0.1,
+                        length: 140
+                    });
+                }
+            });
+        }
+        
         function updateGraph(newNodes, newEdges) {
             console.log('Updating graph with nodes:', newNodes.length, 'edges:', newEdges.length);
             
@@ -946,25 +1011,13 @@
             
             nodes.add(newNodes);
             edges.add(newEdges);
+            lastSelectedNodeId = null;
+            addTypeGlueEdges();
             
             console.log('Nodes added to dataset:', nodes.length);
             console.log('Edges added to dataset:', edges.length);
             
-            // 노드 수가 많으면 물리 엔진 비활성화
-            if (newNodes.length > 30) {
-                network.setOptions({
-                    physics: {
-                        enabled: false
-                    }
-                });
-                console.log('물리 엔진 비활성화 (노드 수:', newNodes.length + ')');
-            } else {
-                network.setOptions({
-                    physics: {
-                        enabled: true
-                    }
-                });
-            }
+            applyPhysicsStabilization(140);
             
             // 그래프를 화면에 맞추고 약간 줌아웃
             setTimeout(() => {
@@ -998,11 +1051,23 @@
             if (params.nodes.length === 0) return;
             
             const nodeId = params.nodes[0];
+            lastSelectedNodeId = nodeId;
+            if (nodeId.startsWith('product_') || nodeId.startsWith('material_') || nodeId.startsWith('workcenter_')) {
+                document.getElementById('graphInfo').textContent = '확장할 노드가 없습니다';
+                return;
+            }
             document.getElementById('loading').style.display = 'block';
             
             try {
-                const response = await fetch(`${API_BASE}/node/${nodeId}/expand`);
+                const response = await fetch(`${API_BASE}/node/${encodeURIComponent(nodeId)}/expand`);
+                if (!response.ok) {
+                    throw new Error('expand failed: ' + response.status);
+                }
                 const data = await response.json();
+                if (!data || !data.nodes || data.nodes.length === 0) {
+                    document.getElementById('graphInfo').textContent = '확장할 노드가 없습니다';
+                    return;
+                }
                 
                 // 기존 노드/엣지에 추가
                 data.nodes.forEach(node => {
@@ -1016,13 +1081,18 @@
                         edges.add(edge);
                     }
                 });
+                addTypeGlueEdges();
                 
                 document.getElementById('graphInfo').textContent = 
                     `${data.nodes.length}개 노드 추가됨`;
+                
+                // 확장 후 잠깐만 물리 엔진 켜서 겹침 해소
+                applyPhysicsStabilization(120);
+                network.fit({ animation: { duration: 800, easingFunction: 'easeInOutQuad' } });
                     
             } catch (error) {
                 console.error('노드 확장 실패:', error);
-                alert('노드를 확장할 수 없습니다.');
+                document.getElementById('graphInfo').textContent = '노드 확장 실패';
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
@@ -1038,6 +1108,7 @@
             const node = nodes.get(nodeId);
             
             if (!node) return;
+            lastSelectedNodeId = nodeId;
             
             // 콘솔에만 출력
             console.log(`${node.type}: ${node.label}`, node.properties);
@@ -1045,6 +1116,7 @@
         
         // 초기화 버튼 - 처음 상태로
         let initialGraphData = null;
+        let lastSelectedNodeId = null;
         
         function saveInitialState(graphNodes, graphEdges) {
             initialGraphData = {
@@ -1063,7 +1135,10 @@
             edges.clear();
             nodes.add(initialGraphData.nodes);
             edges.add(initialGraphData.edges);
+            addTypeGlueEdges();
+            lastSelectedNodeId = null;
             
+            applyPhysicsStabilization(140);
             network.fit();
             document.getElementById('graphInfo').textContent = '그래프가 초기화되었습니다';
         }
@@ -1072,12 +1147,15 @@
         function focusSelection() {
             const selected = network.getSelectedNodes();
             
-            if (selected.length === 0) {
+            let selectedNodeId = selected[0];
+            if (!selectedNodeId && lastSelectedNodeId && nodes.get(lastSelectedNodeId)) {
+                selectedNodeId = lastSelectedNodeId;
+                network.selectNodes([selectedNodeId]);
+            }
+            if (!selectedNodeId) {
                 alert('노드를 먼저 선택해주세요 (클릭)');
                 return;
             }
-            
-            const selectedNodeId = selected[0];
             const selectedNode = nodes.get(selectedNodeId);
             
             // 선택한 노드와 직접 연결된 노드 찾기
@@ -1110,6 +1188,7 @@
                 }
             });
             
+            applyPhysicsStabilization(120);
             setTimeout(() => {
                 network.fit();
             }, 100);

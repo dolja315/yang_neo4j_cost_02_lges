@@ -34,24 +34,60 @@ def serialize_neo4j_types(obj):
     return obj
 
 
+def variance_color(amount):
+    """차이 금액 크기에 따른 색상"""
+    try:
+        value = abs(float(amount))
+    except (TypeError, ValueError):
+        return '#98D8C8'
+    if value >= 1_000_000_000:
+        return '#FF6B6B'
+    if value >= 100_000_000:
+        return '#FFA94D'
+    if value >= 10_000_000:
+        return '#FFD43B'
+    return '#98D8C8'
+
+
+def get_node_color(node_type):
+    color_map = {
+        'Variance': '#98D8C8',
+        'ProductionOrder': '#45B7D1',
+        'Product': '#FF6B6B',
+        'Material': '#4ECDC4',
+        'WorkCenter': '#F7DC6F',
+        'Cause': '#F8B739'
+    }
+    return color_map.get(node_type, '#95A5A6')
+
+
 class Neo4jConnection:
     def __init__(self):
+        self.driver = None
         uri = os.getenv('NEO4J_URI')
         username = os.getenv('NEO4J_USERNAME')
         password = os.getenv('NEO4J_PASSWORD')
-        
-        print(f"Connecting to Neo4j: {uri}")
-        print(f"Username: {username}")
-        
-        # Neo4j Aura는 neo4j+s:// 프로토콜 사용
-        self.driver = GraphDatabase.driver(uri, auth=(username, password))
-    
+        if not uri or not password:
+            print("Warning: NEO4J_URI or NEO4J_PASSWORD not set. API will return empty data.")
+            return
+        try:
+            print(f"Connecting to Neo4j: {uri}")
+            print(f"Username: {username}")
+            self.driver = GraphDatabase.driver(uri, auth=(username, password))
+        except Exception as e:
+            print(f"Warning: Neo4j driver init failed: {e}. API will return empty data.")
+            self.driver = None
+
     def close(self):
         if self.driver:
-            self.driver.close()
+            try:
+                self.driver.close()
+            except Exception:
+                pass
+            self.driver = None
 
 
-# 전역 연결 객체
+# 전역 연결 객체 (연결 실패해도 서버는 기동)
 neo4j_conn = Neo4jConnection()
 
 
@@ -93,7 +129,7 @@ def get_variance_graph(variance_id):
             'id': v.element_id,
             'label': v.get('variance_name', v['id']),
             'type': 'Variance',
-            'color': '#98D8C8',
+            'color': variance_color(v.get('variance_amount')),
             'size': 30,
             'properties': serialize_neo4j_types(dict(v))
         })
@@ -113,7 +149,7 @@ def get_variance_graph(variance_id):
                     'from': po.element_id,
                     'to': v.element_id,
                     'label': 'HAS_VARIANCE',
-                    'color': '#98D8C8'
+                    'color': variance_color(v.get('variance_amount'))
                 })
         
         # Material 노드들
@@ -244,7 +280,7 @@ def get_cause_graph(cause_code):
                     'id': v.element_id,
                     'label': v.get('variance_name', v['id']),
                     'type': 'Variance',
-                    'color': '#98D8C8',
+                    'color': variance_color(v.get('variance_amount')),
                     'size': 20,
                     'properties': serialize_neo4j_types(dict(v))
                 })
@@ -276,7 +312,7 @@ def get_cause_graph(cause_code):
                             'from': po.element_id,
                             'to': v.element_id,
                             'label': 'HAS_VARIANCE',
-                            'color': '#98D8C8'
+                            'color': variance_color(v.get('variance_amount'))
                         })
         
         return jsonify({
@@ -322,28 +358,32 @@ def get_variances_by_type():
 def get_variances_by_element():
     """원가요소별 생산오더 목록 (MATERIAL, LABOR, OVERHEAD)"""
     cost_element = request.args.get('element', '')
-    
-    with neo4j_conn.driver.session() as session:
-        query = """
-        MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
-        OPTIONAL MATCH (po)-[:WORKS_AT]->(wc:WorkCenter)
-        WHERE v.cost_element = $cost_element
-        WITH po, wc,
-             SUM(v.variance_amount) as total_variance,
-             COUNT(v) as variance_count
-        RETURN elementId(po) as po_id,
-               po.id as order_no,
-               po.product_cd as product,
-               wc.id as work_center,
-               total_variance,
-               variance_count
-        ORDER BY ABS(total_variance) DESC
-        LIMIT 30
-        """
-        
-        results = session.run(query, cost_element=cost_element).data()
-        
-        return jsonify(results)
+    if not neo4j_conn.driver:
+        return jsonify([])
+    try:
+        with neo4j_conn.driver.session() as session:
+            query = """
+            MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
+            OPTIONAL MATCH (po)-[:WORKS_AT]->(wc:WorkCenter)
+            WHERE v.cost_element = $cost_element
+            WITH po, wc,
+                 SUM(v.variance_amount) as total_variance,
+                 COUNT(v) as variance_count
+            RETURN elementId(po) as po_id,
+                   po.id as order_no,
+                   po.product_cd as product,
+                   wc.id as work_center,
+                   total_variance,
+                   variance_count
+            ORDER BY ABS(total_variance) DESC
+            LIMIT 30
+            """
+            results = session.run(query, cost_element=cost_element).data()
+            return jsonify(results or [])
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify([])
 
 
 @app.route('/api/product/<product_cd>/graph', methods=['GET'])
@@ -397,6 +437,12 @@ def get_product_graph(product_cd):
         
         nodes = []
         edges = []
+        order_ids = [po['id'] for po in (result['orders'] or []) if po and po.get('id')]
+        cause_pairs = session.run("""
+            MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v)-[:CAUSED_BY]->(c)
+            WHERE po.id IN $order_ids
+            RETURN DISTINCT elementId(v) as v_id, elementId(c) as c_id
+        """, order_ids=order_ids).data() if order_ids else []
         
         # Product 노드 (중심)
         if result['p']:
@@ -444,25 +490,25 @@ def get_product_graph(product_cd):
                     'color': '#FF6B6B'
                 })
         
-        # Variance 노드들
+        # Variance 노드들 (각 Variance는 자신의 PO에만 연결)
         for v in result['variances']:
             if v:
                 nodes.append({
                     'id': v.element_id,
                     'label': v.get('variance_name', v['id']),
                     'type': 'Variance',
-                    'color': '#98D8C8',
+                    'color': variance_color(v.get('variance_amount')),
                     'size': 25,
                     'properties': serialize_neo4j_types(dict(v))
                 })
-                # PO를 통해 연결
+                v_order_no = v.get('order_no')
                 for po in result['orders']:
-                    if po:
+                    if po and v_order_no == po.get('id'):
                         edges.append({
                             'from': po.element_id,
                             'to': v.element_id,
                             'label': 'HAS_VARIANCE',
-                            'color': '#98D8C8'
+                            'color': variance_color(v.get('variance_amount'))
                         })
         
         # Material 노드들
@@ -507,25 +553,26 @@ def get_product_graph(product_cd):
         
         # Cause 노드들
         for c in result['causes']:
-            if c:
-                if not any(n['id'] == c.element_id for n in nodes):
-                    nodes.append({
-                        'id': c.element_id,
-                        'label': c.get('description', c.get('code', 'Cause')),
-                        'type': 'Cause',
-                        'color': '#F7DC6F',
-                        'size': 25,
-                        'properties': serialize_neo4j_types(dict(c))
-                    })
-                
-                for v in result['variances']:
-                    if v:
-                        edges.append({
-                            'from': v.element_id,
-                            'to': c.element_id,
-                            'label': 'CAUSED_BY',
-                            'color': '#F7DC6F'
-                        })
+            if c and not any(n['id'] == c.element_id for n in nodes):
+                nodes.append({
+                    'id': c.element_id,
+                    'label': c.get('description', c.get('code', 'Cause')),
+                    'type': 'Cause',
+                    'color': '#F7DC6F',
+                    'size': 25,
+                    'properties': serialize_neo4j_types(dict(c))
+                })
+        # Variance -> Cause 실제 관계만 연결
+        for pair in cause_pairs:
+            v_id = pair.get('v_id')
+            c_id = pair.get('c_id')
+            if v_id and c_id:
+                edges.append({
+                    'from': v_id,
+                    'to': c_id,
+                    'label': 'CAUSED_BY',
+                    'color': '#F7DC6F'
+                })
         
         return jsonify({
             'nodes': nodes,
@@ -569,6 +616,12 @@ def get_material_graph(material_id):
         
         nodes = []
         edges = []
+        order_ids = [po['id'] for po in (result['orders'] or []) if po and po.get('id')]
+        cause_pairs = session.run("""
+            MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v)-[:CAUSED_BY]->(c)
+            WHERE po.id IN $order_ids
+            RETURN DISTINCT elementId(v) as v_id, elementId(c) as c_id
+        """, order_ids=order_ids).data() if order_ids else []
         
         # Material 노드 (중심)
         m = result['m']
@@ -599,24 +652,25 @@ def get_material_graph(material_id):
                     'color': '#4ECDC4'
                 })
         
-        # Variance 노드들
+        # Variance 노드들 (각 Variance는 자신의 PO에만 연결)
         for v in result['variances']:
             if v:
                 nodes.append({
                     'id': v.element_id,
                     'label': v.get('variance_name', v['id']),
                     'type': 'Variance',
-                    'color': '#98D8C8',
+                    'color': variance_color(v.get('variance_amount')),
                     'size': 25,
                     'properties': serialize_neo4j_types(dict(v))
                 })
+                v_order_no = v.get('order_no')
                 for po in result['orders']:
-                    if po:
+                    if po and v_order_no == po.get('id'):
                         edges.append({
                             'from': po.element_id,
                             'to': v.element_id,
                             'label': 'HAS_VARIANCE',
-                            'color': '#98D8C8'
+                            'color': variance_color(v.get('variance_amount'))
                         })
         
         # WorkCenter 노드들
@@ -661,25 +715,26 @@ def get_material_graph(material_id):
         
         # Cause 노드들
         for c in result['causes']:
-            if c:
-                if not any(n['id'] == c.element_id for n in nodes):
-                    nodes.append({
-                        'id': c.element_id,
-                        'label': c.get('description', c.get('code', 'Cause')),
-                        'type': 'Cause',
-                        'color': '#F7DC6F',
-                        'size': 25,
-                        'properties': serialize_neo4j_types(dict(c))
-                    })
-                
-                for v in result['variances']:
-                    if v:
-                        edges.append({
-                            'from': v.element_id,
-                            'to': c.element_id,
-                            'label': 'CAUSED_BY',
-                            'color': '#F7DC6F'
-                        })
+            if c and not any(n['id'] == c.element_id for n in nodes):
+                nodes.append({
+                    'id': c.element_id,
+                    'label': c.get('description', c.get('code', 'Cause')),
+                    'type': 'Cause',
+                    'color': '#F7DC6F',
+                    'size': 25,
+                    'properties': serialize_neo4j_types(dict(c))
+                })
+        # Variance -> Cause 실제 관계만 연결
+        for pair in cause_pairs:
+            v_id = pair.get('v_id')
+            c_id = pair.get('c_id')
+            if v_id and c_id:
+                edges.append({
+                    'from': v_id,
+                    'to': c_id,
+                    'label': 'CAUSED_BY',
+                    'color': '#F7DC6F'
+                })
         
         return jsonify({
             'nodes': nodes,
@@ -723,6 +778,12 @@ def get_workcenter_graph(workcenter_id):
         
         nodes = []
         edges = []
+        order_ids = [po['id'] for po in (result['orders'] or []) if po and po.get('id')]
+        cause_pairs = session.run("""
+            MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v)-[:CAUSED_BY]->(c)
+            WHERE po.id IN $order_ids
+            RETURN DISTINCT elementId(v) as v_id, elementId(c) as c_id
+        """, order_ids=order_ids).data() if order_ids else []
         
         # WorkCenter 노드 (중심)
         wc = result['wc']
@@ -753,19 +814,20 @@ def get_workcenter_graph(workcenter_id):
                     'color': '#FFA07A'
                 })
         
-        # Variance 노드들
+        # Variance 노드들 (각 Variance는 자신의 PO에만 연결)
         for v in result['variances']:
             if v:
                 nodes.append({
                     'id': v.element_id,
                     'label': v.get('variance_name', v['id']),
                     'type': 'Variance',
-                    'color': '#98D8C8',
+                    'color': variance_color(v.get('variance_amount')),
                     'size': 25,
                     'properties': serialize_neo4j_types(dict(v))
                 })
+                v_order_no = v.get('order_no')
                 for po in result['orders']:
-                    if po:
+                    if po and v_order_no == po.get('id'):
                         edges.append({
                             'from': po.element_id,
                             'to': v.element_id,
@@ -870,6 +932,10 @@ def get_production_order_graph(order_no):
         
         nodes = []
         edges = []
+        cause_pairs = session.run("""
+            MATCH (po:ProductionOrder {id: $order_no})-[:HAS_VARIANCE]->(v)-[:CAUSED_BY]->(c)
+            RETURN elementId(v) as v_id, elementId(c) as c_id
+        """, order_no=order_no).data()
         
         # ProductionOrder 노드 (중심)
         po = result['po']
@@ -911,7 +977,7 @@ def get_production_order_graph(order_no):
                     'id': v.element_id,
                     'label': v.get('variance_name', v['id']),
                     'type': 'Variance',
-                    'color': '#98D8C8',
+                    'color': variance_color(v.get('variance_amount')),
                     'size': 25,
                     'properties': serialize_neo4j_types(dict(v))
                 })
@@ -919,7 +985,7 @@ def get_production_order_graph(order_no):
                     'from': po.element_id,
                     'to': v.element_id,
                     'label': 'HAS_VARIANCE',
-                    'color': '#98D8C8'
+                    'color': variance_color(v.get('variance_amount'))
                 })
         
         # Material 노드들
@@ -978,27 +1044,26 @@ def get_production_order_graph(order_no):
         
         # Cause 노드들
         for c in result['causes']:
-            if c:
-                # 중복 체크
-                if not any(n['id'] == c.element_id for n in nodes):
-                    nodes.append({
-                        'id': c.element_id,
-                        'label': c.get('description', c.get('code', 'Cause')),
-                        'type': 'Cause',
-                        'color': '#F7DC6F',
-                        'size': 25,
-                        'properties': serialize_neo4j_types(dict(c))
-                    })
-                
-                # Variance -> Cause 연결
-                for v in result['variances']:
-                    if v:
-                        edges.append({
-                            'from': v.element_id,
-                            'to': c.element_id,
-                            'label': 'CAUSED_BY',
-                            'color': '#F7DC6F'
-                        })
+            if c and not any(n['id'] == c.element_id for n in nodes):
+                nodes.append({
+                    'id': c.element_id,
+                    'label': c.get('description', c.get('code', 'Cause')),
+                    'type': 'Cause',
+                    'color': '#F7DC6F',
+                    'size': 25,
+                    'properties': serialize_neo4j_types(dict(c))
+                })
+        # Variance -> Cause 실제 관계만 연결
+        for pair in cause_pairs:
+            v_id = pair.get('v_id')
+            c_id = pair.get('c_id')
+            if v_id and c_id:
+                edges.append({
+                    'from': v_id,
+                    'to': c_id,
+                    'label': 'CAUSED_BY',
+                    'color': '#F7DC6F'
+                })
         
         return jsonify({
             'nodes': nodes,
@@ -1010,69 +1075,55 @@ def get_production_order_graph(order_no):
 @app.route('/api/node/<node_id>/expand', methods=['GET'])
 def expand_node(node_id):
     """노드 확장 - 연결된 노드들 가져오기"""
-    
-    with neo4j_conn.driver.session() as session:
-        query = """
-        MATCH (n)
-        WHERE elementId(n) = $node_id
-        MATCH (n)-[r]-(connected)
-        RETURN n, 
-               connected,
-               r,
-               type(r) as rel_type,
-               CASE 
-                   WHEN startNode(r) = n THEN 'out'
-                   ELSE 'in'
-               END as direction
-        LIMIT 50
-        """
-        
-        results = session.run(query, node_id=node_id)
-        
-        nodes = []
-        edges = []
-        seen_nodes = set()
-        seen_edges = set()
-        
-        # 중심 노드 먼저 추가
-        first_result = None
-        for record in results:
-            if first_result is None:
-                first_result = record
-                center = record['n']
-                center_type = list(center.labels)[0]
-                center_id = center.element_id
-                
-                if center_id not in seen_nodes:
-                    # Variance 노드는 variance_name 우선 사용
-                    if center_type == 'Variance':
-                        center_label = center.get('variance_name', center.get('id'))
-                    else:
-                        center_label = center.get('id') or center.get('name') or center.get('description')
-                    
-                    nodes.append({
-                        'id': center_id,
-                        'label': center_label,
-                        'type': center_type,
-                        'color': get_node_color(center_type),
-                        'size': 30,
-                        'properties': serialize_neo4j_types(dict(center))
-                    })
-                    seen_nodes.add(center_id)
-            
-            # 연결된 노드 추가
-            connected = record['connected']
-            node_type = list(connected.labels)[0]
-            node_id = connected.element_id
-            
-            if node_id not in seen_nodes:
-                # Variance 노드는 variance_name 우선 사용
-                if node_type == 'Variance':
-                    node_label = connected.get('variance_name', connected.get('id'))
-                else:
-                    node_label = connected.get('id') or connected.get('name') or connected.get('description')
-                
-                # 노드 색상 매핑
+    if not neo4j_conn.driver:
+        return jsonify({'nodes': [], 'edges': []})
+    try:
+        with neo4j_conn.driver.session() as session:
+            query = """
+            MATCH (n)
+            WHERE elementId(n) = $node_id
+            MATCH (n)-[r]-(connected)
+            RETURN n, 
+                   connected,
+                   r,
+                   type(r) as rel_type,
+                   CASE 
+                       WHEN startNode(r) = n THEN 'out'
+                       ELSE 'in'
+                   END as direction
+            LIMIT 50
+            """
+            results = session.run(query, node_id=node_id)
+            nodes = []
+            edges = []
+            seen_nodes = set()
+            seen_edges = set()
+            first_result = None
+            for record in results:
+                if first_result is None:
+                    first_result = record
+                    center = record['n']
+                    center_type = list(center.labels)[0]
+                    center_id = center.element_id
+                    if center_id not in seen_nodes:
+                        if center_type == 'Variance':
+                            center_label = center.get('variance_name', center.get('id'))
+                            center_color = variance_color(center.get('variance_amount'))
+                        else:
+                            center_label = center.get('id') or center.get('name') or center.get('description')
+                            center_color = get_node_color(center_type)
+                        nodes.append({
+                            'id': center_id,
+                            'label': center_label,
+                            'type': center_type,
+                            'color': center_color,
+                            'size': 30,
+                            'properties': serialize_neo4j_types(dict(center))
+                        })
+                        seen_nodes.add(center_id)
+                connected = record['connected']
+                node_type = list(connected.labels)[0]
+                node_id = connected.element_id
                 color_map = {
                     'Variance': '#98D8C8',
                     'ProductionOrder': '#45B7D1',
@@ -1081,134 +1132,116 @@ def expand_node(node_id):
                     'WorkCenter': '#F7DC6F',
                     'Cause': '#F8B739'
                 }
-                
-                nodes.append({
-                    'id': node_id,
-                    'label': node_label,
-                    'type': node_type,
-                    'color': color_map.get(node_type, '#95A5A6'),
-                    'size': 25,
-                    'properties': serialize_neo4j_types(dict(connected))
-                })
-                seen_nodes.add(node_id)
-            
-            # 관계(edge) 추가
-            rel = record['r']
-            rel_type = record['rel_type']
-            direction = record['direction']
-            edge_id = f"{center.element_id}-{node_id}-{rel_type}"
-            
-            if edge_id not in seen_edges:
-                if direction == 'out':
-                    edges.append({
-                        'id': edge_id,
-                        'from': center.element_id,
-                        'to': node_id,
-                        'label': rel_type,
-                        'arrows': 'to'
+                if node_id not in seen_nodes:
+                    if node_type == 'Variance':
+                        node_label = connected.get('variance_name', connected.get('id'))
+                        node_color = variance_color(connected.get('variance_amount'))
+                    else:
+                        node_label = connected.get('id') or connected.get('name') or connected.get('description')
+                        node_color = color_map.get(node_type, '#95A5A6')
+                    nodes.append({
+                        'id': node_id,
+                        'label': node_label,
+                        'type': node_type,
+                        'color': node_color,
+                        'size': 25,
+                        'properties': serialize_neo4j_types(dict(connected))
                     })
-                else:
-                    edges.append({
-                        'id': edge_id,
-                        'from': node_id,
-                        'to': center.element_id,
-                        'label': rel_type,
-                        'arrows': 'to'
-                    })
-                seen_edges.add(edge_id)
-        
-        if not first_result:
-            return jsonify({'error': 'Node not found'}), 404
-        
-        return jsonify({
-            'nodes': nodes,
-            'edges': edges
-        })
+                    seen_nodes.add(node_id)
+                rel_type = record['rel_type']
+                direction = record['direction']
+                edge_id = f"{center.element_id}-{node_id}-{rel_type}"
+                if edge_id not in seen_edges:
+                    if direction == 'out':
+                        edges.append({
+                            'id': edge_id,
+                            'from': center.element_id,
+                            'to': node_id,
+                            'label': rel_type,
+                            'arrows': 'to'
+                        })
+                    else:
+                        edges.append({
+                            'id': edge_id,
+                            'from': node_id,
+                            'to': center.element_id,
+                            'label': rel_type,
+                            'arrows': 'to'
+                        })
+                    seen_edges.add(edge_id)
+            if not first_result:
+                return jsonify({'nodes': [], 'edges': []})
+            return jsonify({'nodes': nodes, 'edges': edges})
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'nodes': [], 'edges': []})
 
 
 @app.route('/api/overview', methods=['GET'])
 def get_overview():
-    """전체 개요 그래프"""
-    
-    with neo4j_conn.driver.session() as session:
-        query = """
-        MATCH (v:Variance)
-        WITH v.cost_element as element, 
-             v.variance_type as type,
-             collect(v)[..5] as sample_variances
-        UNWIND sample_variances as v
-        OPTIONAL MATCH (v)-[:CAUSED_BY]->(c:Cause)
-        RETURN element, type, 
-               collect(DISTINCT {
-                   id: elementId(v),
-                   label: v.id,
-                   props: properties(v)
-               }) as variances, 
-               collect(DISTINCT {
-                   id: elementId(c),
-                   label: c.description,
-                   props: properties(c)
-               }) as causes
-        """
-        
-        results = session.run(query).data()
-        
-        nodes = []
-        edges = []
-        element_nodes = {}
-        added_node_ids = set()
-        
-        # 원가 요소 노드 생성
-        for row in results:
-            element = row['element']
-            if element not in element_nodes:
-                elem_id = f"element_{element}"
-                element_nodes[element] = elem_id
-                nodes.append({
-                    'id': elem_id,
-                    'label': element,
-                    'type': 'CostElement',
-                    'color': '#3498db',
-                    'size': 40,
-                    'properties': {'name': element}
-                })
-            
-            # Variance 노드들
-            for v in row['variances']:
-                if v and v['id'] not in added_node_ids:
-                    added_node_ids.add(v['id'])
+    """전체 개요 그래프 (연결 확인용으로도 사용됨)"""
+    if not neo4j_conn.driver:
+        return jsonify({'nodes': [], 'edges': []})
+    try:
+        with neo4j_conn.driver.session() as session:
+            query = """
+            MATCH (v:Variance)
+            WITH v.cost_element as element,
+                 v.variance_type as type,
+                 collect(v)[..5] as sample_variances
+            UNWIND sample_variances as v
+            OPTIONAL MATCH (v)-[:CAUSED_BY]->(c:Cause)
+            RETURN element, type,
+                   collect(DISTINCT {
+                       id: elementId(v),
+                       label: v.id,
+                       props: properties(v)
+                   }) as variances,
+                   collect(DISTINCT {
+                       id: elementId(c),
+                       label: c.description,
+                       props: properties(c)
+                   }) as causes
+            """
+            results = session.run(query).data()
+            nodes = []
+            edges = []
+            element_nodes = {}
+            added_node_ids = set()
+            for row in results:
+                element = row['element']
+                if element not in element_nodes:
+                    elem_id = f"element_{element}"
+                    element_nodes[element] = elem_id
                     nodes.append({
-                        'id': v['id'],
-                        'label': v['label'],
-                        'type': 'Variance',
-                        'color': '#98D8C8',
-                        'size': 20,
-                        'properties': v['props']
+                        'id': elem_id, 'label': element, 'type': 'CostElement',
+                        'color': '#3498db', 'size': 40, 'properties': {'name': element}
                     })
-                    edges.append({
-                        'from': element_nodes[element],
-                        'to': v['id'],
-                        'label': row['type'],
-                        'color': '#98D8C8'
-                    })
-            
-            # Cause 노드들
-            for c in row['causes']:
-                if c and c['id'] and c['id'] not in added_node_ids:
-                    added_node_ids.add(c['id'])
-                    nodes.append({
-                        'id': c['id'],
-                        'label': c['label'],
-                        'type': 'Cause',
-                        'color': '#F7DC6F',
-                        'size': 25,
-                        'properties': c['props'] if c['props'] else {}
-                    })
-        
-        return jsonify({
-            'nodes': nodes,
-            'edges': edges
-        })
+                for v in (row.get('variances') or []):
+                    if v and v.get('id') and v['id'] not in added_node_ids:
+                        added_node_ids.add(v['id'])
+                        nodes.append({
+                            'id': v['id'], 'label': v.get('label', ''), 'type': 'Variance',
+                            'color': '#98D8C8', 'size': 20, 'properties': v.get('props') or {}
+                        })
+                        edges.append({
+                            'from': element_nodes[element], 'to': v['id'],
+                            'label': row.get('type', ''), 'color': '#98D8C8'
+                        })
+                for c in (row.get('causes') or []):
+                    if c and c.get('id') and c['id'] not in added_node_ids:
+                        added_node_ids.add(c['id'])
+                        nodes.append({
+                            'id': c['id'], 'label': c.get('label', ''),
+                            'type': 'Cause', 'color': '#F7DC6F', 'size': 25,
+                            'properties': c.get('props') or {}
+                        })
+            return jsonify({'nodes': nodes, 'edges': edges})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'nodes': [], 'edges': []})
 
 
 @app.route('/api/summary', methods=['GET'])
@@ -1230,102 +1263,120 @@ def get_summary():
         return jsonify(results)
 
 
+def _safe_month(fd):
+    """날짜 값에서 YYYY-MM 추출 (Neo4j Date/문자열 모두 처리)"""
+    if fd is None:
+        return None
+    s = str(fd) if not isinstance(fd, str) else fd
+    return s[:7] if len(s) >= 7 else s
+
+
+def _empty_filters():
+    return jsonify({'products': [], 'work_centers': [], 'materials': [], 'months': []})
+
+
 @app.route('/api/filters', methods=['GET'])
 def get_filters():
     """필터 옵션 - 제품, 공정, 기간, 원자재"""
-    
-    with neo4j_conn.driver.session() as session:
-        # 제품 목록
-        products_query = """
-        MATCH (po:ProductionOrder)
-        RETURN DISTINCT po.product_cd as product
-        ORDER BY product
-        """
-        products = [row['product'] for row in session.run(products_query).data() if row['product']]
-        
-        # 공정 목록 (관계를 통해)
-        wc_query = """
-        MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
-        RETURN DISTINCT wc.id as work_center
-        ORDER BY work_center
-        """
-        work_centers = [row['work_center'] for row in session.run(wc_query).data() if row['work_center']]
-        
-        # 원자재 목록
-        material_query = """
-        MATCH (m:Material)
-        RETURN DISTINCT m.id as material_id, m.name as material_name
-        ORDER BY material_id
-        LIMIT 100
-        """
-        materials = [{'id': row['material_id'], 'name': row['material_name'] or row['material_id']} 
-                    for row in session.run(material_query).data() if row['material_id']]
-        
-        # 기간 목록 (월별 - finish_date 사용)
-        month_query = """
-        MATCH (po:ProductionOrder)
-        WHERE po.finish_date IS NOT NULL
-        WITH substring(toString(po.finish_date), 0, 7) as month
-        RETURN DISTINCT month
-        ORDER BY month DESC
-        """
-        months = [row['month'] for row in session.run(month_query).data() if row['month']]
-        
-        return jsonify({
-            'products': products,
-            'work_centers': work_centers,
-            'materials': materials,
-            'months': months
-        })
+    if not neo4j_conn.driver:
+        return _empty_filters()
+    try:
+        with neo4j_conn.driver.session() as session:
+            # 제품 목록
+            products_query = """
+            MATCH (po:ProductionOrder)
+            WHERE po.product_cd IS NOT NULL
+            RETURN DISTINCT po.product_cd as product
+            ORDER BY product
+            """
+            products = [row['product'] for row in session.run(products_query).data() if row.get('product')]
+            
+            # 공정 목록 (관계를 통해)
+            wc_query = """
+            MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
+            RETURN DISTINCT wc.id as work_center
+            ORDER BY work_center
+            """
+            work_centers = [row['work_center'] for row in session.run(wc_query).data() if row.get('work_center')]
+            
+            # 원자재 목록
+            material_query = """
+            MATCH (m:Material)
+            RETURN DISTINCT m.id as material_id, m.name as material_name
+            ORDER BY material_id
+            LIMIT 100
+            """
+            materials = [{'id': row['material_id'], 'name': row.get('material_name') or row['material_id']} 
+                        for row in session.run(material_query).data() if row.get('material_id')]
+            
+            # 기간 목록 (월별 - finish_date 사용, 문자열/날짜 모두 처리)
+            month_query = """
+            MATCH (po:ProductionOrder)
+            WHERE po.finish_date IS NOT NULL
+            RETURN DISTINCT po.finish_date as fd
+            ORDER BY fd DESC
+            """
+            months_raw = session.run(month_query).data()
+            months = sorted({_safe_month(row.get('fd')) for row in months_raw if row.get('fd')} - {None}, reverse=True)
+            
+            return jsonify({
+                'products': products or [],
+                'work_centers': work_centers or [],
+                'materials': materials or [],
+                'months': months or []
+            })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return _empty_filters()
+
+
+def _empty_filtered_summary():
+    return jsonify({'total_variance': 0, 'total_count': 0, 'by_type': []})
 
 
 @app.route('/api/filtered_summary', methods=['POST'])
 def get_filtered_summary():
     """필터 적용된 요약 통계"""
-    
     filters = request.json or {}
     product = filters.get('product', '')
     work_center = filters.get('work_center', '')
     month = filters.get('month', '')
-    
-    with neo4j_conn.driver.session() as session:
-        # 타입별로 집계
-        type_query = """
-        MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
-        WHERE ($product = '' OR po.product_cd = $product)
-        AND ($month = '' OR substring(toString(po.finish_date), 0, 7) = $month)
-        """
-        
-        # work_center 필터 추가 (관계를 통해)
-        if work_center:
-            type_query += """
-            AND EXISTS {
-                MATCH (po)-[:WORKS_AT]->(wc:WorkCenter {id: $work_center})
-            }
+    if not neo4j_conn.driver:
+        return _empty_filtered_summary()
+    try:
+        with neo4j_conn.driver.session() as session:
+            type_query = """
+            MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
+            WHERE ($product = '' OR po.product_cd = $product)
+            AND ($month = '' OR substring(toString(po.finish_date), 0, 7) = $month)
             """
-        
-        type_query += """
-        RETURN 
-            v.cost_element as cost_element,
-            v.variance_type as variance_type,
-            SUM(v.variance_amount) as total_variance,
-            COUNT(v) as count
-        ORDER BY cost_element
-        """
-        
-        by_type = session.run(type_query,
-                            product=product,
-                            work_center=work_center,
-                            month=month).data()
-        
-        total_variance = sum([row['total_variance'] for row in by_type if row['total_variance']])
-        total_count = sum([row['count'] for row in by_type if row['count']])
-        
-        return jsonify({
-            'total_variance': total_variance,
-            'total_count': total_count,
-            'by_type': by_type
-        })
+            if work_center:
+                type_query += """
+                AND EXISTS {
+                    MATCH (po)-[:WORKS_AT]->(wc:WorkCenter {id: $work_center})
+                }
+                """
+            type_query += """
+            RETURN
+                v.cost_element as cost_element,
+                v.variance_type as variance_type,
+                SUM(v.variance_amount) as total_variance,
+                COUNT(v) as count
+            ORDER BY cost_element
+            """
+            by_type = session.run(type_query, product=product, work_center=work_center, month=month).data()
+            total_variance = sum([row.get('total_variance') or 0 for row in by_type])
+            total_count = sum([row.get('count') or 0 for row in by_type])
+            return jsonify({
+                'total_variance': total_variance,
+                'total_count': total_count,
+                'by_type': by_type or []
+            })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return _empty_filtered_summary()
 
 
 @app.route('/api/test/produces/<order_no>', methods=['GET'])
@@ -1395,18 +1446,36 @@ def comparison():
     return send_file(os.path.join(base_dir, 'comparison.html'))
 
 
+def _default_summary():
+    return {
+        'total_variance': 0, 'variance_count': 0,
+        'quantity_variance': 0, 'quantity_count': 0,
+        'price_variance': 0, 'price_count': 0,
+        'production_variance': 0, 'production_count': 0
+    }
+
+
+def _empty_dashboard_response():
+    return jsonify({
+        'summary': _default_summary(),
+        'monthly_trend': [], 'by_type': [], 'by_product': [], 'by_process': [], 'top_orders': []
+    })
+
+
 @app.route('/api/dashboard-data', methods=['POST'])
 def get_dashboard_data():
     """대시보드 데이터 제공"""
-    data = request.json
+    data = request.json or {}
     product = data.get('product', '')
     work_center = data.get('work_center', '')
     month = data.get('month', '')
-    
-    with neo4j_conn.driver.session() as session:
-        # 요약 데이터
-        if work_center:
-            summary_query = """
+    if not neo4j_conn.driver:
+        return _empty_dashboard_response()
+    try:
+        with neo4j_conn.driver.session() as session:
+            # 요약 데이터
+            if work_center:
+                summary_query = """
             MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
             MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($product = '' OR po.product_cd = $product)
@@ -1415,33 +1484,34 @@ def get_dashboard_data():
             RETURN 
                 sum(v.variance_amount) as total_variance,
                 count(v) as variance_count,
-                sum(CASE WHEN v.variance_type = 'QUANTITY' THEN v.variance_amount ELSE 0 END) as quantity_variance,
-                sum(CASE WHEN v.variance_type = 'QUANTITY' THEN 1 ELSE 0 END) as quantity_count,
-                sum(CASE WHEN v.variance_type = 'PRICE' THEN v.variance_amount ELSE 0 END) as price_variance,
-                sum(CASE WHEN v.variance_type = 'PRICE' THEN 1 ELSE 0 END) as price_count,
-                sum(CASE WHEN v.variance_type = 'PRODUCTION' THEN v.variance_amount ELSE 0 END) as production_variance,
-                sum(CASE WHEN v.variance_type = 'PRODUCTION' THEN 1 ELSE 0 END) as production_count
+                sum(CASE WHEN v.cost_element = 'MATERIAL' THEN v.variance_amount ELSE 0 END) as quantity_variance,
+                sum(CASE WHEN v.cost_element = 'MATERIAL' THEN 1 ELSE 0 END) as quantity_count,
+                sum(CASE WHEN v.cost_element = 'LABOR' THEN v.variance_amount ELSE 0 END) as price_variance,
+                sum(CASE WHEN v.cost_element = 'LABOR' THEN 1 ELSE 0 END) as price_count,
+                sum(CASE WHEN v.cost_element = 'OVERHEAD' THEN v.variance_amount ELSE 0 END) as production_variance,
+                sum(CASE WHEN v.cost_element = 'OVERHEAD' THEN 1 ELSE 0 END) as production_count
             """
-        else:
-            summary_query = """
+            else:
+                summary_query = """
             MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($product = '' OR po.product_cd = $product)
             AND ($month = '' OR substring(toString(po.finish_date), 0, 7) = $month)
             RETURN 
                 sum(v.variance_amount) as total_variance,
                 count(v) as variance_count,
-                sum(CASE WHEN v.variance_type = 'QUANTITY' THEN v.variance_amount ELSE 0 END) as quantity_variance,
-                sum(CASE WHEN v.variance_type = 'QUANTITY' THEN 1 ELSE 0 END) as quantity_count,
-                sum(CASE WHEN v.variance_type = 'PRICE' THEN v.variance_amount ELSE 0 END) as price_variance,
-                sum(CASE WHEN v.variance_type = 'PRICE' THEN 1 ELSE 0 END) as price_count,
-                sum(CASE WHEN v.variance_type = 'PRODUCTION' THEN v.variance_amount ELSE 0 END) as production_variance,
-                sum(CASE WHEN v.variance_type = 'PRODUCTION' THEN 1 ELSE 0 END) as production_count
+                sum(CASE WHEN v.cost_element = 'MATERIAL' THEN v.variance_amount ELSE 0 END) as quantity_variance,
+                sum(CASE WHEN v.cost_element = 'MATERIAL' THEN 1 ELSE 0 END) as quantity_count,
+                sum(CASE WHEN v.cost_element = 'LABOR' THEN v.variance_amount ELSE 0 END) as price_variance,
+                sum(CASE WHEN v.cost_element = 'LABOR' THEN 1 ELSE 0 END) as price_count,
+                sum(CASE WHEN v.cost_element = 'OVERHEAD' THEN v.variance_amount ELSE 0 END) as production_variance,
+                sum(CASE WHEN v.cost_element = 'OVERHEAD' THEN 1 ELSE 0 END) as production_count
             """
-        summary = session.run(summary_query, product=product, work_center=work_center, month=month).single()
-        
-        # 월별 트렌드
-        if work_center:
-            trend_query = """
+            summary_row = session.run(summary_query, product=product, work_center=work_center, month=month).single()
+            summary = summary_row if summary_row else _default_summary()
+            
+            # 월별 트렌드
+            if work_center:
+                trend_query = """
             MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
             MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($product = '' OR po.product_cd = $product)
@@ -1450,40 +1520,40 @@ def get_dashboard_data():
             RETURN month, total
             ORDER BY month
             """
-        else:
-            trend_query = """
+            else:
+                trend_query = """
             MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($product = '' OR po.product_cd = $product)
             WITH substring(toString(po.finish_date), 0, 7) as month, sum(v.variance_amount) as total
             RETURN month, total
             ORDER BY month
             """
-        trend = session.run(trend_query, product=product, work_center=work_center).data()
-        
-        # 차이 유형별
-        if work_center:
-            type_query = """
+            trend = session.run(trend_query, product=product, work_center=work_center).data()
+            
+            # 차이 유형별
+            if work_center:
+                type_query = """
             MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
             MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($product = '' OR po.product_cd = $product)
             AND wc.id = $work_center
             AND ($month = '' OR substring(toString(po.finish_date), 0, 7) = $month)
-            WITH v.variance_type as type, sum(v.variance_amount) as amount
-            RETURN type, amount
+            WITH v.cost_element as element, sum(v.variance_amount) as amount
+            RETURN element, amount
             """
-        else:
-            type_query = """
+            else:
+                type_query = """
             MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($product = '' OR po.product_cd = $product)
             AND ($month = '' OR substring(toString(po.finish_date), 0, 7) = $month)
-            WITH v.variance_type as type, sum(v.variance_amount) as amount
-            RETURN type, amount
+            WITH v.cost_element as element, sum(v.variance_amount) as amount
+            RETURN element, amount
             """
-        by_type = session.run(type_query, product=product, work_center=work_center, month=month).data()
-        
-        # 제품별
-        if work_center:
-            product_query = """
+            by_type = session.run(type_query, product=product, work_center=work_center, month=month).data()
+            
+            # 제품별
+            if work_center:
+                product_query = """
             MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
             MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
             WHERE wc.id = $work_center
@@ -1492,18 +1562,18 @@ def get_dashboard_data():
             RETURN product, amount
             ORDER BY abs(amount) DESC
             """
-        else:
-            product_query = """
+            else:
+                product_query = """
             MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($month = '' OR substring(toString(po.finish_date), 0, 7) = $month)
             WITH po.product_cd as product, sum(v.variance_amount) as amount
             RETURN product, amount
             ORDER BY abs(amount) DESC
             """
-        by_product = session.run(product_query, work_center=work_center, month=month).data()
-        
-        # 공정별
-        process_query = """
+            by_product = session.run(product_query, work_center=work_center, month=month).data()
+            
+            # 공정별
+            process_query = """
         MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
         MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
         WHERE ($product = '' OR po.product_cd = $product)
@@ -1512,11 +1582,11 @@ def get_dashboard_data():
         RETURN work_center, amount
         ORDER BY abs(amount) DESC
         """
-        by_process = session.run(process_query, product=product, month=month).data()
-        
-        # 상위 오더
-        if work_center:
-            top_orders_query = """
+            by_process = session.run(process_query, product=product, month=month).data()
+            
+            # 상위 오더
+            if work_center:
+                top_orders_query = """
             MATCH (po:ProductionOrder)-[:WORKS_AT]->(wc:WorkCenter)
             MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
             WHERE ($product = '' OR po.product_cd = $product)
@@ -1527,8 +1597,8 @@ def get_dashboard_data():
             LIMIT 20
             RETURN po.id as order_no, po.product_cd as product, wc.id as work_center, total_variance
             """
-        else:
-            top_orders_query = """
+            else:
+                top_orders_query = """
             MATCH (po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
             OPTIONAL MATCH (po)-[:WORKS_AT]->(wc:WorkCenter)
             WHERE ($product = '' OR po.product_cd = $product)
@@ -1538,31 +1608,35 @@ def get_dashboard_data():
             LIMIT 20
             RETURN po.id as order_no, po.product_cd as product, wc.id as work_center, total_variance
             """
-        top_orders = session.run(top_orders_query, product=product, work_center=work_center, month=month).data()
-        
-        return jsonify({
-            'summary': {
-                'total_variance': summary['total_variance'] or 0,
-                'variance_count': summary['variance_count'] or 0,
-                'quantity_variance': summary['quantity_variance'] or 0,
-                'quantity_count': summary['quantity_count'] or 0,
-                'price_variance': summary['price_variance'] or 0,
-                'price_count': summary['price_count'] or 0,
-                'production_variance': summary['production_variance'] or 0,
-                'production_count': summary['production_count'] or 0
-            },
-            'monthly_trend': trend,
-            'by_type': by_type,
-            'by_product': by_product,
-            'by_process': by_process,
-            'top_orders': top_orders
-        })
+            top_orders = session.run(top_orders_query, product=product, work_center=work_center, month=month).data()
+            
+            return jsonify({
+                'summary': {
+                    'total_variance': (summary.get('total_variance') or 0),
+                    'variance_count': (summary.get('variance_count') or 0),
+                    'quantity_variance': (summary.get('quantity_variance') or 0),
+                    'quantity_count': (summary.get('quantity_count') or 0),
+                    'price_variance': (summary.get('price_variance') or 0),
+                    'price_count': (summary.get('price_count') or 0),
+                    'production_variance': (summary.get('production_variance') or 0),
+                    'production_count': (summary.get('production_count') or 0)
+                },
+                'monthly_trend': trend or [],
+                'by_type': by_type or [],
+                'by_product': by_product or [],
+                'by_process': by_process or [],
+                'top_orders': top_orders or []
+            })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return _empty_dashboard_response()
 
 
 @app.route('/api/comparison-data', methods=['POST'])
 def get_comparison_data():
     """비교 분석 데이터 제공"""
-    data = request.json
+    data = request.json or {}
     targets = data.get('targets', [])
     
     summaries = []
