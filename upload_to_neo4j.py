@@ -6,7 +6,7 @@ sys.path.append('neo4j')
 from data_loader import Neo4jDataLoader
 
 if __name__ == "__main__":
-    print("\n[Battery] 배터리 원가 데이터를 Neo4j에 업로드합니다...")
+    print("\n[Semiconductor] 반도체 원가 데이터를 Neo4j에 업로드합니다...")
     print("=" * 70)
     
     loader = Neo4jDataLoader()

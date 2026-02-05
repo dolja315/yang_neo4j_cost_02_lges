@@ -5,17 +5,17 @@ This guide explains how to deploy and run the new **Semiconductor Cost Variance 
 ## 1. Prerequisites
 
 - **Python 3.12+**
-- **Neo4j Database** (Version 5.x recommended)
+- **Neo4j Aura Database** (Cloud)
 - **Docker & Docker Compose** (Optional, for containerized deployment)
 
 ## 2. Environment Setup
 
-Create a `.env` file in the root directory with your Neo4j credentials:
+Create a `.env` file in the root directory with your Neo4j Aura credentials:
 
 ```env
-NEO4J_URI=bolt://localhost:7687
+NEO4J_URI=neo4j+ssc://<your-aura-db-id>.databases.neo4j.io
 NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your_password
+NEO4J_PASSWORD=<your-password>
 NEO4J_DATABASE=neo4j
 ```
 
@@ -37,10 +37,10 @@ This will create:
 - **New Relationship files**: `rel_variance_material.csv`, `rel_variance_workcenter.csv`, `rel_variance_defect.csv`, `rel_variance_failure.csv`
 
 ### Step 2: Load Data to Neo4j
-Ensure your Neo4j instance is running, then execute the loader:
+Ensure your `.env` file is set up correctly, then execute the loader:
 
 ```bash
-python neo4j/data_loader.py
+python upload_to_neo4j.py
 ```
 *Note: This script will clear the existing database (`clear_first=True` by default).*
 
@@ -61,7 +61,7 @@ Access the dashboard at: **http://localhost:8000/**
 
 ## 5. Docker Deployment
 
-To run the entire stack (Flask API + Streamlit + Neo4j) using Docker Compose:
+To run the application using Docker Compose:
 
 1.  **Build and Run**:
     ```bash
@@ -70,14 +70,9 @@ To run the entire stack (Flask API + Streamlit + Neo4j) using Docker Compose:
 
 2.  **Access Services**:
     -   **Web Dashboard**: http://localhost:8000
-    -   **Streamlit App**: http://localhost:8501
-    -   **Neo4j Browser**: http://localhost:7474
-
-3.  **Data Persistence**:
-    -   Neo4j data is persisted in the `neo4j_data` volume.
 
 ## 6. Troubleshooting
 
--   **"Failed to fetch process status"**: Check if the Neo4j container is running and reachable at the URI specified in `.env`.
--   **Graph Empty**: Ensure `neo4j/data_loader.py` ran successfully and populated the database.
--   **Port Conflicts**: Ensure ports 8000, 8501, 7474, and 7687 are free.
+-   **"Failed to fetch process status"**: Check if the Neo4j Aura instance is reachable and the `.env` credentials are correct.
+-   **Graph Empty**: Ensure `upload_to_neo4j.py` ran successfully and populated the database.
+-   **Port Conflicts**: Ensure port 8000 is free.
