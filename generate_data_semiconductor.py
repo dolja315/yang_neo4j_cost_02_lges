@@ -557,6 +557,17 @@ def generate_variance_analysis(cost_accumulation_df, material_consumption_df, op
                 else:
                     material_cd = cons.iloc[0]['actual_material_cd']
 
+            # [NEW] Assign WorkCenter based on Material for Process Monitoring
+            if material_cd:
+                if 'WAFER' in material_cd or 'LF' in material_cd or 'SUB' in material_cd:
+                    workcenter_cd = 'WC-DA-01' # Die Attach
+                elif 'WIRE' in material_cd:
+                    workcenter_cd = 'WC-WB-01' # Wire Bond
+                elif 'EMC' in material_cd:
+                    workcenter_cd = 'WC-MD-01' # Molding
+                else:
+                    workcenter_cd = 'WC-DA-01' # Default
+
             # 골드 와이어 사용 제품인지 확인
             has_gold = cons['actual_material_cd'].str.contains('WIRE-AU').any()
             # 에폭시 사용량 확인
