@@ -13,12 +13,11 @@
         .tab-content.active { display: block; }
         .process-box { transition: all 0.3s; cursor: pointer; }
         .process-box:hover { transform: translateY(-5px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
-        .drawer {
-            position: fixed; right: -600px; top: 50px; width: 600px; height: calc(100% - 50px);
-            background: white; box-shadow: -5px 0 15px rgba(0,0,0,0.1);
-            transition: right 0.3s ease-in-out; z-index: 50; overflow-y: auto;
+        #bottom-analysis-panel {
+            background: white; border-top: 1px solid #e5e7eb;
+            transition: all 0.3s ease-in-out;
         }
-        .drawer.open { right: 0; }
+        #bottom-analysis-panel.hidden { display: none; }
         #mynetwork { width: 100%; height: 100%; }
         .spinner {
             border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%;
@@ -68,10 +67,52 @@
             </div>
 
             <!-- Recent Alerts -->
-            <div class="bg-white rounded-lg shadow p-6">
+            <div class="bg-white rounded-lg shadow p-6 mb-8">
                 <h3 class="text-lg font-semibold text-gray-700 mb-4">🚨 Recent High Variance Alerts</h3>
                 <div id="alerts-list" class="space-y-3">
                     <!-- List items will be injected here -->
+                </div>
+            </div>
+
+            <!-- Bottom Analysis Panel (Moved from Drawer) -->
+            <div id="bottom-analysis-panel" class="bg-white rounded-lg shadow p-6 hidden">
+                <div class="flex justify-between items-center mb-6 border-b pb-4">
+                    <h3 class="font-bold text-xl text-gray-800" id="analysis-title">Analysis</h3>
+                    <button onclick="closeAnalysisPanel()" class="text-gray-500 hover:text-red-500 text-xl">&times;</button>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- Left Column: Waterfall & Details -->
+                    <div>
+                        <div class="mb-6">
+                            <h4 class="font-semibold text-gray-700 mb-2">💰 Cost Breakdown (Waterfall)</h4>
+                            <div class="mb-2">
+                                <select id="orderSelect" class="w-full border p-2 rounded text-sm bg-white" onchange="if(this.value) openOrderDrilldown(this.value)">
+                                    <option value="">-- Select Production Order --</option>
+                                </select>
+                            </div>
+                            <div id="waterfall-chart" class="w-full h-80 bg-gray-50 rounded flex items-center justify-center border">
+                                <span class="text-gray-400">Select an order to view costs</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h4 class="font-semibold text-gray-700 mb-2">📋 Details</h4>
+                            <div id="analysis-details" class="text-sm text-gray-600 max-h-40 overflow-y-auto border p-2 rounded"></div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Graph & Cost Allocation -->
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="font-semibold text-gray-700">🕸️ Root Cause / Cost Allocation Graph</h4>
+                            <div class="space-x-2">
+                                <button id="btn-view-allocation" onclick="viewCostAllocation()" class="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded hover:bg-purple-200 hidden">View Allocation</button>
+                                <button onclick="openInExplorer()" class="text-xs text-indigo-600 hover:underline">Full Screen ↗</button>
+                            </div>
+                        </div>
+                        <div id="mini-network" class="w-full h-[500px] bg-gray-50 rounded border"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -96,43 +137,6 @@
         </div>
     </div>
 
-    <!-- Right Drawer (Shared for Tab 2 Drill-down) -->
-    <div id="drawer" class="drawer flex flex-col">
-        <div class="p-4 border-b flex justify-between items-center bg-gray-50">
-            <h3 class="font-bold text-lg text-gray-800" id="drawer-title">Analysis</h3>
-            <button onclick="closeDrawer()" class="text-gray-500 hover:text-red-500 text-xl">&times;</button>
-        </div>
-
-        <div class="p-4 flex-1 overflow-y-auto">
-            <!-- Waterfall Chart -->
-            <div class="mb-8">
-                <h4 class="font-semibold text-gray-700 mb-2">💰 Cost Breakdown (Waterfall)</h4>
-                <div class="mb-2">
-                    <select id="orderSelect" class="w-full border p-2 rounded text-sm bg-white" onchange="if(this.value) openOrderDrilldown(this.value)">
-                        <option value="">-- Select Production Order --</option>
-                    </select>
-                </div>
-                <div id="waterfall-chart" class="w-full h-64 bg-gray-100 rounded flex items-center justify-center">
-                    <span class="text-gray-400">Select an order to view costs</span>
-                </div>
-            </div>
-
-            <!-- Mini Graph -->
-            <div class="mb-8">
-                <div class="flex justify-between items-center mb-2">
-                    <h4 class="font-semibold text-gray-700">🕸️ Root Cause Graph</h4>
-                    <button onclick="openInExplorer()" class="text-xs text-indigo-600 hover:underline">Full Screen ↗</button>
-                </div>
-                <div id="mini-network" class="w-full h-64 bg-gray-100 rounded border"></div>
-            </div>
-
-            <!-- Details Table -->
-            <div>
-                <h4 class="font-semibold text-gray-700 mb-2">📋 Details</h4>
-                <div id="drawer-details" class="text-sm text-gray-600"></div>
-            </div>
-        </div>
-    </div>
 
     <script>
         // --- State ---
@@ -163,15 +167,15 @@
             if (tabId === 3 && currentFocusId) loadGraph(currentFocusId, 'mynetwork');
         }
 
-        function closeDrawer() {
-            document.getElementById('drawer').classList.remove('open');
+        function closeAnalysisPanel() {
+            document.getElementById('bottom-analysis-panel').classList.add('hidden');
         }
 
         function openInExplorer() {
             if (currentFocusId) {
                 switchTab(3);
                 loadGraph(currentFocusId, 'mynetwork');
-                closeDrawer();
+                // closeAnalysisPanel(); // Optional: keep it open or close it
             }
         }
 
@@ -193,39 +197,47 @@
                      return;
                 }
 
-                // Define order
-                const steps = [
-                    { id: 'WC-DA-01', label: 'Die Attach' },
-                    { id: 'WC-WB-01', label: 'Wire Bond' },
-                    { id: 'WC-MD-01', label: 'Molding' },
-                    { id: 'WC-MK-01', label: 'Marking' }
+                // Define Process Groups (Aggregation Logic)
+                const processGroups = [
+                    { id: 'DIE_ATTACH', label: 'Die Attach', pattern: /WC-DA/ },
+                    { id: 'WIRE_BOND', label: 'Wire Bond', pattern: /WC-WB/ },
+                    { id: 'MOLDING', label: 'Molding', pattern: /WC-MD/ },
+                    { id: 'MARKING', label: 'Marking', pattern: /WC-MK/ }
                 ];
 
                 let html = '';
-                steps.forEach(step => {
-                    const info = data.find(d => d.id === step.id) || { risk_level: 0 };
-                    const risk = info.risk_level;
+
+                processGroups.forEach(group => {
+                    // Aggregate risk from all matching WCs
+                    const matchingWCs = data.filter(d => group.pattern.test(d.id));
+                    const totalRisk = matchingWCs.reduce((sum, d) => sum + d.risk_level, 0);
+
+                    // Use the first matching WC ID for drilldown, or a representative one
+                    // Ideally drilldown should show all, but for now we pass the first found or a default
+                    const representativeId = matchingWCs.length > 0 ? matchingWCs[0].id : null;
+
                     let colorClass = 'bg-green-100 border-green-500 text-green-800';
                     let icon = '✅';
 
-                    if (risk > 10) {
+                    if (totalRisk > 10) {
                         colorClass = 'bg-red-100 border-red-500 text-red-800';
                         icon = '🔥';
-                    } else if (risk > 0) {
+                    } else if (totalRisk > 0) {
                         colorClass = 'bg-yellow-100 border-yellow-500 text-yellow-800';
                         icon = '⚠️';
                     }
 
+                    const clickAction = representativeId ? `onclick="openProcessDrilldown('${representativeId}', '${group.label}')"` : '';
+
                     html += `
-                        <div class="process-box w-48 p-4 rounded-lg border-l-4 ${colorClass} bg-white shadow-sm relative z-10"
-                             onclick="openProcessDrilldown('${step.id}', '${step.label}')">
+                        <div class="process-box w-48 p-4 rounded-lg border-l-4 ${colorClass} bg-white shadow-sm relative z-10" ${clickAction}>
                             <div class="text-xs font-bold uppercase tracking-wider mb-1 opacity-70">Step</div>
-                            <div class="font-bold text-lg mb-2">${step.label}</div>
+                            <div class="font-bold text-lg mb-2">${group.label}</div>
                             <div class="flex justify-between items-center">
                                 <span class="text-2xl">${icon}</span>
                                 <div class="text-right">
                                     <div class="text-xs">Variances</div>
-                                    <div class="font-bold text-xl">${risk}</div>
+                                    <div class="font-bold text-xl">${totalRisk}</div>
                                 </div>
                             </div>
                         </div>
@@ -290,14 +302,21 @@
             } catch(e) { console.error("Failed to load order select", e); }
         }
 
-        // --- Drill-down Drawer ---
+        // --- Drill-down Panel ---
         async function openProcessDrilldown(wcId, wcLabel) {
-            document.getElementById('drawer-title').textContent = `Analysis: ${wcLabel}`;
-            document.getElementById('drawer').classList.add('open');
+            document.getElementById('analysis-title').textContent = `Analysis: ${wcLabel}`;
+            const panel = document.getElementById('bottom-analysis-panel');
+            panel.classList.remove('hidden');
 
-            // For process drilldown, maybe show aggregated waterfall?
-            // For now, let's just show top variances for this WC
-            // We need an endpoint for this. Reusing dashboard-data with filter
+            // Scroll to panel
+            panel.scrollIntoView({ behavior: 'smooth' });
+
+            // Show Cost Allocation Button for WorkCenters
+            const allocBtn = document.getElementById('btn-view-allocation');
+            allocBtn.classList.remove('hidden');
+            allocBtn.onclick = () => viewCostAllocation(wcId);
+
+            // Clear waterfall
             document.getElementById('waterfall-chart').innerHTML = '<div class="text-gray-400">Select an order from the list below to view costs</div>';
 
             // Load graph for WorkCenter
@@ -305,29 +324,42 @@
             loadGraph(wcId, 'mini-network');
 
             // Show list of orders in details
-            const detailsDiv = document.getElementById('drawer-details');
+            const detailsDiv = document.getElementById('analysis-details');
             detailsDiv.innerHTML = '<div class="spinner"></div>';
 
-            const res = await fetch('/api/dashboard-data', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ work_center: wcId })
-            });
-            const data = await res.json();
+            try {
+                const res = await fetch('/api/dashboard-data', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ work_center: wcId })
+                });
+                const data = await res.json();
 
-            let html = '<ul class="space-y-2">';
-            data.top_orders.slice(0, 10).forEach(o => {
-                html += `<li class="flex justify-between border-b pb-1 cursor-pointer hover:text-indigo-600" onclick="openOrderDrilldown('${o.order_no}')">
-                    <span>${o.order_no}</span>
-                    <span class="text-red-500">${new Intl.NumberFormat('ko-KR').format(o.total_variance)}</span>
-                </li>`;
-            });
-            html += '</ul>';
-            detailsDiv.innerHTML = html;
+                let html = '<ul class="space-y-2">';
+                if(data.top_orders) {
+                    data.top_orders.slice(0, 10).forEach(o => {
+                        html += `<li class="flex justify-between border-b pb-1 cursor-pointer hover:text-indigo-600" onclick="openOrderDrilldown('${o.order_no}')">
+                            <span>${o.order_no}</span>
+                            <span class="text-red-500">${new Intl.NumberFormat('ko-KR').format(o.total_variance)}</span>
+                        </li>`;
+                    });
+                } else {
+                    html += '<li>No high variance orders found.</li>';
+                }
+                html += '</ul>';
+                detailsDiv.innerHTML = html;
+            } catch(e) {
+                detailsDiv.innerHTML = 'Error loading details.';
+            }
         }
 
         async function openOrderDrilldown(orderId) {
-            document.getElementById('drawer-title').textContent = `Order: ${orderId}`;
-            document.getElementById('drawer').classList.add('open');
+            document.getElementById('analysis-title').textContent = `Order: ${orderId}`;
+            const panel = document.getElementById('bottom-analysis-panel');
+            panel.classList.remove('hidden');
+
+            // Hide Alloc button for Orders (or could keep it if relevant, but typically WC level)
+            document.getElementById('btn-view-allocation').classList.add('hidden');
+
             currentFocusId = orderId;
 
             // Load Waterfall
@@ -336,7 +368,33 @@
             // Load Graph
             loadGraph(orderId, 'mini-network');
 
-            document.getElementById('drawer-details').innerHTML = `Viewing details for Production Order <b>${orderId}</b>. Check the Waterfall chart for cost breakdown.`;
+            document.getElementById('analysis-details').innerHTML = `Viewing details for Production Order <b>${orderId}</b>. Check the Waterfall chart for cost breakdown.`;
+        }
+
+        async function viewCostAllocation(wcId) {
+            if(!wcId) wcId = currentFocusId;
+            if(!wcId || !wcId.startsWith('WC')) return;
+
+            const container = document.getElementById('mini-network');
+            // Show loading
+            // Fetch special allocation graph
+             try {
+                const res = await fetch(`/api/analysis/cost-allocation/${wcId}`);
+                const data = await res.json();
+
+                if(data.nodes) {
+                    const nodes = new vis.DataSet(data.nodes);
+                    const edges = new vis.DataSet(data.edges);
+                    const options = {
+                        nodes: { shape: 'dot', font: { size: 12 } },
+                        edges: { arrows: 'to' },
+                        layout: { hierarchical: { direction: 'UD', sortMethod: 'directed' } } // Tree layout for allocation
+                    };
+                    miniNetworkInstance = new vis.Network(container, { nodes, edges }, options);
+                }
+            } catch(e) {
+                console.error(e);
+            }
         }
 
         async function loadWaterfall(orderId) {
