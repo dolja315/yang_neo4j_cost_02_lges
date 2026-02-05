@@ -1,4 +1,5 @@
 id,name,process_type,labor_rate_per_hour,overhead_rate_per_hour,capacity_per_hour,location,active
-WC-01,전극 제조 라인 (양극재/음극재/전해질),ELECTRODE,45000,85000,300,A동,True
-WC-02,분리막 처리 라인,SEPARATOR,50000,95000,200,B동,True
-WC-03,케이스 조립 라인,CASE_ASSEMBLY,48000,90000,150,C동,True
+WC-DA-01,Die Attach Line,DIE_ATTACH,35000,70000,500,CleanRoom-A,True
+WC-WB-01,Wire Bonding Line,WIRE_BOND,40000,80000,400,CleanRoom-A,True
+WC-MD-01,Molding Line,MOLDING,38000,75000,300,CleanRoom-B,True
+WC-MK-01,Marking & Singulation,MARKING,30000,60000,600,CleanRoom-B,True

@@ -1,7 +1,6 @@
 ﻿cause_code,cause_category,variance_type,cause_description,responsible_dept,detail_description
-품질_불량,MATERIAL,DIFF,자재 품질 불량 (QUALITY_DEFECT),품질팀,입고 자재의 품질 문제로 재작업 및 폐기 발생
-대체자재_사용,MATERIAL,DIFF,대체자재 사용,구매팀,주자재 품절로 단가가 높은 대체자재 긴급 사용
-인력_숙련도,LABOR,DIFF,인력 숙련도,생산팀,신규 작업자 또는 미숙련 인력 투입으로 작업 효율 저하
-외주_사용,LABOR,DIFF,외주 인력 사용,생산팀,정규직 대비 높은 단가의 외주 인력 투입
-설비_고장,OVERHEAD,DIFF,설비 고장,설비팀,설비 고장 및 노후화로 작업 지연 및 유지보수 비용 증가
-자재_사용_증가,OVERHEAD,DIFF,자재 사용 증가,생산팀,생산량 증가 또는 비효율로 인한 간접 자재 사용 증가
+WAFER_CRACK,MATERIAL,DIFF,웨이퍼 크랙,품질팀,입고 웨이퍼 미세 크랙
+WIRE_BREAK,MATERIAL,DIFF,와이어 단선,생산팀,본딩 중 금선 끊어짐
+MOLD_VOID,QUALITY,DIFF,몰딩 기포(Void),기술팀,EMC 충진 불량으로 내부 기포 발생
+EPOXY_EXP,MATERIAL,DIFF,에폭시 유효기간 경과,자재팀,보관 기간 초과된 접착제 사용
+MC_ERROR_WB,OVERHEAD,DIFF,본더 설비 오작동,설비팀,Wire Bonder 좌표 인식 오류
