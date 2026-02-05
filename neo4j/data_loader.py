@@ -78,7 +78,11 @@ class Neo4jDataLoader:
                 "CREATE CONSTRAINT cause_code IF NOT EXISTS FOR (c:Cause) REQUIRE c.code IS UNIQUE",
                 "CREATE CONSTRAINT quality_defect_id IF NOT EXISTS FOR (qd:QualityDefect) REQUIRE qd.id IS UNIQUE",
                 "CREATE CONSTRAINT equipment_failure_id IF NOT EXISTS FOR (ef:EquipmentFailure) REQUIRE ef.id IS UNIQUE",
-                "CREATE CONSTRAINT material_market_id IF NOT EXISTS FOR (mm:MaterialMarket) REQUIRE mm.id IS UNIQUE"
+                "CREATE CONSTRAINT material_market_id IF NOT EXISTS FOR (mm:MaterialMarket) REQUIRE mm.id IS UNIQUE",
+                "CREATE CONSTRAINT cost_pool_id IF NOT EXISTS FOR (cp:CostPool) REQUIRE cp.id IS UNIQUE",
+                "CREATE CONSTRAINT monthly_state_id IF NOT EXISTS FOR (ms:MonthlyProductState) REQUIRE ms.id IS UNIQUE",
+                "CREATE CONSTRAINT symptom_id IF NOT EXISTS FOR (s:Symptom) REQUIRE s.id IS UNIQUE",
+                "CREATE CONSTRAINT factor_id IF NOT EXISTS FOR (f:Factor) REQUIRE f.id IS UNIQUE"
             ]
             
             for constraint in constraints:
@@ -298,6 +302,82 @@ class Neo4jDataLoader:
                 """, params=params)
         
         print(f"  [OK] Cause 노드: {len(df)}개")
+
+    def load_cost_pools(self):
+        """CostPool 노드 로드"""
+        csv_file = f'{self.data_dir}/cost_pools.csv'
+        if not os.path.exists(csv_file):
+            print(f"  [X] 파일 없음: {csv_file}")
+            return
+
+        df = pd.read_csv(csv_file)
+
+        with self.driver.session(database=self.database) as session:
+            for _, row in tqdm(df.iterrows(), total=len(df), desc="  CostPools"):
+                params = dict(row)
+                session.run("""
+                    CREATE (cp:CostPool)
+                    SET cp = $params
+                """, params=params)
+
+        print(f"  [OK] CostPool 노드: {len(df)}개")
+
+    def load_monthly_states(self):
+        """MonthlyProductState 노드 로드"""
+        csv_file = f'{self.data_dir}/monthly_states.csv'
+        if not os.path.exists(csv_file):
+            print(f"  [X] 파일 없음: {csv_file}")
+            return
+
+        df = pd.read_csv(csv_file)
+
+        with self.driver.session(database=self.database) as session:
+            for _, row in tqdm(df.iterrows(), total=len(df), desc="  MonthlyStates"):
+                params = dict(row)
+                session.run("""
+                    CREATE (ms:MonthlyProductState)
+                    SET ms = $params
+                """, params=params)
+
+        print(f"  [OK] MonthlyProductState 노드: {len(df)}개")
+
+    def load_symptoms(self):
+        """Symptom 노드 로드"""
+        csv_file = f'{self.data_dir}/symptoms.csv'
+        if not os.path.exists(csv_file):
+            print(f"  [X] 파일 없음: {csv_file}")
+            return
+
+        df = pd.read_csv(csv_file)
+
+        with self.driver.session(database=self.database) as session:
+            for _, row in tqdm(df.iterrows(), total=len(df), desc="  Symptoms"):
+                params = dict(row)
+                session.run("""
+                    CREATE (s:Symptom)
+                    SET s = $params
+                """, params=params)
+
+        print(f"  [OK] Symptom 노드: {len(df)}개")
+
+    def load_factors(self):
+        """Factor 노드 로드"""
+        csv_file = f'{self.data_dir}/factors.csv'
+        if not os.path.exists(csv_file):
+            print(f"  [X] 파일 없음: {csv_file}")
+            return
+
+        df = pd.read_csv(csv_file)
+
+        with self.driver.session(database=self.database) as session:
+            for _, row in tqdm(df.iterrows(), total=len(df), desc="  Factors"):
+                params = dict(row)
+                session.run("""
+                    CREATE (f:Factor)
+                    SET f = $params
+                """, params=params)
+
+        print(f"  [OK] Factor 노드: {len(df)}개")
     
     def load_quality_defects(self):
         """QualityDefect 노드 로드"""
@@ -431,17 +511,21 @@ class Neo4jDataLoader:
                     # 선택적 필드
                     if 'is_alternative' in row and pd.notna(row['is_alternative']):
                         params['is_alternative'] = row['is_alternative']
+                    if 'batch_no' in row and pd.notna(row['batch_no']):
+                        params['batch_no'] = row['batch_no']
                     
-                    session.run("""
+                    query = """
                         MATCH (po:ProductionOrder {id: $from})
                         MATCH (m:Material {id: $to})
                         CREATE (po)-[:CONSUMES {
                             planned_qty: $planned_qty,
                             actual_qty: $actual_qty,
                             unit: $unit,
-                            is_alternative: $is_alternative
+                            is_alternative: COALESCE($is_alternative, 'N'),
+                            batch_no: $batch_no
                         }]->(m)
-                    """, params)
+                    """
+                    session.run(query, params)
             print(f"  [OK] CONSUMES: {len(df)}개")
         
         # WORKS_AT 관계
@@ -465,6 +549,10 @@ class Neo4jDataLoader:
                         params['worker_count'] = int(row['worker_count'])
                     if 'actual_qty' in row and pd.notna(row['actual_qty']):
                         params['actual_qty'] = int(row['actual_qty'])
+                    if 'step_yield' in row and pd.notna(row['step_yield']):
+                        params['step_yield'] = float(row['step_yield'])
+                    if 'step_loss_qty' in row and pd.notna(row['step_loss_qty']):
+                        params['step_loss_qty'] = int(row['step_loss_qty'])
                     
                     # CREATE 문 동적 생성
                     props = []
@@ -520,7 +608,103 @@ class Neo4jDataLoader:
                     """, dict(row))
             print(f"  [OK] MARKET_PRICE: {len(df)}개")
 
-        # === [NEW] "Spider Legs" Relationships for Variance ===
+        # === [NEW] New Relationships ===
+
+        # INCURRED_COST (WorkCenter -> CostPool)
+        csv_file = f'{self.data_dir}/rel_incurred_cost.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  INCURRED_COST"):
+                    session.run("""
+                        MATCH (wc:WorkCenter {id: $from})
+                        MATCH (cp:CostPool {id: $to})
+                        CREATE (wc)-[:INCURRED_COST]->(cp)
+                    """, dict(row))
+            print(f"  [OK] INCURRED_COST: {len(df)}개")
+
+        # ALLOCATES (CostPool -> ProductionOrder)
+        csv_file = f'{self.data_dir}/rel_allocates.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  ALLOCATES"):
+                    session.run("""
+                        MATCH (cp:CostPool {id: $from})
+                        MATCH (po:ProductionOrder {id: $to})
+                        CREATE (cp)-[:ALLOCATES {
+                            amount: $amount,
+                            hours_used: $hours_used
+                        }]->(po)
+                    """, dict(row))
+            print(f"  [OK] ALLOCATES: {len(df)}개")
+
+        # HAS_MONTHLY_STATE (Product -> MonthlyProductState)
+        csv_file = f'{self.data_dir}/rel_has_monthly_state.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  HAS_MONTHLY_STATE"):
+                    session.run("""
+                        MATCH (p:Product {id: $from})
+                        MATCH (ms:MonthlyProductState {id: $to})
+                        CREATE (p)-[:HAS_MONTHLY_STATE]->(ms)
+                    """, dict(row))
+            print(f"  [OK] HAS_MONTHLY_STATE: {len(df)}개")
+
+        # NEXT_MONTH (MonthlyProductState -> MonthlyProductState)
+        csv_file = f'{self.data_dir}/rel_next_month.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  NEXT_MONTH"):
+                    session.run("""
+                        MATCH (ms1:MonthlyProductState {id: $from})
+                        MATCH (ms2:MonthlyProductState {id: $to})
+                        CREATE (ms1)-[:NEXT_MONTH]->(ms2)
+                    """, dict(row))
+            print(f"  [OK] NEXT_MONTH: {len(df)}개")
+
+        # LINKED_TO_SYMPTOM (Variance -> Symptom)
+        csv_file = f'{self.data_dir}/rel_linked_to_symptom.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  LINKED_TO_SYMPTOM"):
+                    session.run("""
+                        MATCH (v:Variance {id: $from})
+                        MATCH (s:Symptom {id: $to})
+                        CREATE (v)-[:LINKED_TO_SYMPTOM]->(s)
+                    """, dict(row))
+            print(f"  [OK] LINKED_TO_SYMPTOM: {len(df)}개")
+
+        # CAUSED_BY_FACTOR (Symptom -> Factor)
+        csv_file = f'{self.data_dir}/rel_caused_by_factor.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  CAUSED_BY_FACTOR"):
+                    session.run("""
+                        MATCH (s:Symptom {id: $from})
+                        MATCH (f:Factor {id: $to})
+                        CREATE (s)-[:CAUSED_BY_FACTOR]->(f)
+                    """, dict(row))
+            print(f"  [OK] CAUSED_BY_FACTOR: {len(df)}개")
+
+        # TRACED_TO_ROOT (Factor -> Cause)
+        csv_file = f'{self.data_dir}/rel_traced_to_root.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  TRACED_TO_ROOT"):
+                    session.run("""
+                        MATCH (f:Factor {id: $from})
+                        MATCH (c:Cause {code: $to})
+                        CREATE (f)-[:TRACED_TO_ROOT]->(c)
+                    """, dict(row))
+            print(f"  [OK] TRACED_TO_ROOT: {len(df)}개")
+
+        # === "Spider Legs" Relationships for Variance ===
 
         # RELATED_TO_MATERIAL (Variance -> Material)
         csv_file = f'{self.data_dir}/rel_variance_material.csv'
@@ -668,6 +852,10 @@ class Neo4jDataLoader:
             self.load_production_orders()
             self.load_variances()
             self.load_causes()
+            self.load_cost_pools()
+            self.load_monthly_states()
+            self.load_symptoms()
+            self.load_factors()
             self.load_quality_defects()
             self.load_equipment_failures()
             self.load_material_markets()

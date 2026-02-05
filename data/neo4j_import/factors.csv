@@ -1,0 +1,6 @@
+id,name,type
+FACT-001,Ultrasonic Power Instability,Machine
+FACT-002,Nozzle Clogging,Machine
+FACT-003,Epoxy Viscosity High,Material
+FACT-004,Curing Temp Fluctuation,Method
+FACT-005,Operator Handling Error,Man

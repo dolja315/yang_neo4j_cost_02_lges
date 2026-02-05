@@ -33,8 +33,8 @@ python generate_data_semiconductor.py
 
 This will create:
 - Standard nodes: `products.csv`, `materials.csv`, `work_centers.csv`, `production_orders.csv`, `variances.csv`, `causes.csv`
-- Relationship files: `rel_*.csv`
-- **New Relationship files**: `rel_variance_material.csv`, `rel_variance_workcenter.csv`, `rel_variance_defect.csv`, `rel_variance_failure.csv`
+- New nodes: `cost_pools.csv`, `monthly_states.csv`, `symptoms.csv`, `factors.csv`
+- Relationship files: `rel_*.csv` including new drill-down paths (`rel_linked_to_symptom.csv`, etc.)
 
 ### Step 2: Load Data to Neo4j
 Ensure your `.env` file is set up correctly, then execute the loader:
@@ -71,7 +71,22 @@ To run the application using Docker Compose:
 2.  **Access Services**:
     -   **Web Dashboard**: http://localhost:8000
 
-## 6. Troubleshooting
+## 6. API Endpoints
+
+The API server (`graph_api_server.py`) provides the following endpoints:
+
+- **Graph Visualization**:
+    - `GET /api/variance/<id>/graph`
+    - `GET /api/production-order/<order_no>/graph` (Enriched with Yield/Batch info)
+    - `GET /api/analysis/root-cause/<variance_id>` (New: Deep drill-down)
+    - `GET /api/analysis/cost-allocation/<workcenter_id>` (New: Cost Pool allocation)
+
+- **Analysis**:
+    - `GET /api/analysis/comparison/mom/<product_id>` (New: Month-over-Month cost trend)
+    - `GET /api/overview`
+    - `GET /api/summary`
+
+## 7. Troubleshooting
 
 -   **"Failed to fetch process status"**: Check if the Neo4j Aura instance is reachable and the `.env` credentials are correct.
 -   **Graph Empty**: Ensure `upload_to_neo4j.py` ran successfully and populated the database.

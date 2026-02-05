@@ -330,6 +330,11 @@ def generate_material_consumption(production_orders_df, bom_df, materials_df):
             if 'WIRE' in material_cd and random.random() < 0.1:
                 actual_total *= 1.05
 
+            # [NEW] Batch No Generation
+            consumption_date = order['finish_date']
+            month_str = consumption_date.replace('-', '')[:6] # YYYYMM
+            batch_no = f"BATCH-{month_str}-{random.randint(1, 99):03d}"
+
             consumptions.append({
                 'consumption_id': consumption_id,
                 'order_no': order_no,
@@ -339,7 +344,8 @@ def generate_material_consumption(production_orders_df, bom_df, materials_df):
                 'actual_qty': round(actual_total, 4),
                 'unit': unit,
                 'is_alternative': 'N',
-                'consumption_date': order['finish_date']
+                'consumption_date': consumption_date,
+                'batch_no': batch_no
             })
             consumption_id += 1
 
@@ -374,6 +380,18 @@ def generate_operation_actual(production_orders_df, routing_df, work_centers_df)
             actual_time_min = actual_time_sec / 60.0
             standard_time_min = (standard_time_sec * actual_qty) / 60.0
 
+            # [NEW] Step Yield and Loss
+            # Default high yield
+            step_yield = random.uniform(0.98, 1.0)
+
+            # Scenario: Low yield in DIE_ATTACH or WIRE_BOND sometimes
+            routing_op_seq = routing_item['operation_seq']
+            if routing_op_seq in [10, 20] and random.random() < 0.1:
+                step_yield = random.uniform(0.90, 0.95)
+
+            step_loss_qty = int(actual_qty * (1 - step_yield))
+
+
             actuals.append({
                 'actual_id': actual_id,
                 'order_no': order_no,
@@ -384,7 +402,9 @@ def generate_operation_actual(production_orders_df, routing_df, work_centers_df)
                 'actual_qty': actual_qty,
                 'efficiency_rate': round(efficiency * 100, 2),
                 'work_date': order_date_str,
-                'worker_count': 1
+                'worker_count': 1,
+                'step_yield': round(step_yield, 4),
+                'step_loss_qty': step_loss_qty
             })
             actual_id += 1
 
@@ -609,6 +629,216 @@ def generate_variance_analysis(cost_accumulation_df, material_consumption_df, op
 
     return pd.DataFrame(variances)
 
+# ============================================================
+# [NEW] New Entities Generation
+# ============================================================
+
+def generate_cost_pools(operation_actual_df, work_centers_df):
+    """CostPool 및 ALLOCATES 데이터 생성"""
+    # Group operations by WorkCenter and Month
+    ops_df = operation_actual_df.copy()
+    ops_df['month'] = ops_df['work_date'].apply(lambda x: x[:7])
+
+    # Calculate total hours per WC per Month
+    monthly_wc_stats = ops_df.groupby(['workcenter_cd', 'month'])['actual_time_min'].sum().reset_index()
+    monthly_wc_stats['total_hours'] = monthly_wc_stats['actual_time_min'] / 60.0
+
+    pools = []
+    allocations = []
+
+    for _, row in monthly_wc_stats.iterrows():
+        wc_cd = row['workcenter_cd']
+        month = row['month']
+        total_hours = row['total_hours']
+
+        # Get base rates
+        wc_info = work_centers_df[work_centers_df['workcenter_cd'] == wc_cd].iloc[0]
+        base_rate = wc_info['labor_rate_per_hour'] + wc_info['overhead_rate_per_hour']
+
+        # Calculate Total Amount (Actual)
+        # Scenario: 2024-01 Electricity Hike (+20%)
+        multiplier = 1.0
+        if month == '2024-01':
+            multiplier = 1.2
+
+        total_amount = total_hours * base_rate * multiplier
+        actual_rate = total_amount / total_hours if total_hours > 0 else 0
+
+        pool_id = f"POOL-{wc_cd}-{month}"
+
+        pools.append({
+            'id': pool_id,
+            'workcenter_cd': wc_cd,
+            'month': month,
+            'total_amount': round(total_amount, 2),
+            'total_hours': round(total_hours, 2),
+            'actual_rate': round(actual_rate, 2)
+        })
+
+        # Generate Allocations for orders in this WC/Month
+        # Filter ops for this WC and Month
+        month_ops = ops_df[(ops_df['workcenter_cd'] == wc_cd) & (ops_df['month'] == month)]
+
+        # Aggregate by order (one order might visit WC multiple times, though simplified here)
+        order_hours = month_ops.groupby('order_no')['actual_time_min'].sum().reset_index()
+
+        for _, order_row in order_hours.iterrows():
+            order_no = order_row['order_no']
+            hours_used = order_row['actual_time_min'] / 60.0
+            allocated_amount = hours_used * actual_rate
+
+            allocations.append({
+                'from': pool_id,
+                'to': order_no,
+                'amount': round(allocated_amount, 2),
+                'hours_used': round(hours_used, 2)
+            })
+
+    return pd.DataFrame(pools), pd.DataFrame(allocations)
+
+def generate_monthly_product_states(production_orders_df, costs_df):
+    """MonthlyProductState 생성"""
+    # Orders enriched with costs
+    # We need total cost per order
+    order_costs = costs_df.groupby('order_no')['actual_cost'].sum().reset_index()
+
+    merged = pd.merge(production_orders_df, order_costs, on='order_no')
+    merged['month'] = merged['finish_date'].apply(lambda x: x[:7])
+
+    # Calculate monthly stats per product
+    monthly_stats = merged.groupby(['product_cd', 'month']).agg({
+        'actual_cost': 'sum',
+        'actual_qty': 'sum',
+        'good_qty': 'sum'
+    }).reset_index()
+
+    states = []
+
+    for _, row in monthly_stats.iterrows():
+        product_cd = row['product_cd']
+        month = row['month']
+
+        actual_unit_cost = row['actual_cost'] / row['actual_qty'] if row['actual_qty'] > 0 else 0
+        total_yield = row['good_qty'] / row['actual_qty'] if row['actual_qty'] > 0 else 0
+
+        state_id = f"STATE-{product_cd}-{month}"
+
+        states.append({
+            'id': state_id,
+            'product_cd': product_cd,
+            'month': month,
+            'actual_unit_cost': round(actual_unit_cost, 2),
+            'total_yield': round(total_yield, 4)
+        })
+
+    states_df = pd.DataFrame(states)
+
+    # Generate NEXT_MONTH relationships
+    next_month_rels = []
+
+    # Sort by Product and Month
+    states_df.sort_values(['product_cd', 'month'], inplace=True)
+
+    prev_row = None
+    for _, row in states_df.iterrows():
+        if prev_row is not None and prev_row['product_cd'] == row['product_cd']:
+            # Check if months are consecutive (simplified check or just link existing months)
+            next_month_rels.append({
+                'from': prev_row['id'],
+                'to': row['id']
+            })
+        prev_row = row
+
+    return states_df, pd.DataFrame(next_month_rels)
+
+def generate_symptoms_and_factors(cause_df):
+    """Symptom 및 Factor 생성"""
+    symptoms = [
+        ('SYMP-001', 'Bonding Lift', 'HIGH'),
+        ('SYMP-002', 'Wire Loop Height Error', 'MEDIUM'),
+        ('SYMP-003', 'Molding Void', 'HIGH'),
+        ('SYMP-004', 'Incomplete Fill', 'MEDIUM'),
+        ('SYMP-005', 'Wafer Chipping', 'LOW'),
+    ]
+
+    factors = [
+        ('FACT-001', 'Ultrasonic Power Instability', 'Machine'),
+        ('FACT-002', 'Nozzle Clogging', 'Machine'),
+        ('FACT-003', 'Epoxy Viscosity High', 'Material'),
+        ('FACT-004', 'Curing Temp Fluctuation', 'Method'),
+        ('FACT-005', 'Operator Handling Error', 'Man'),
+    ]
+
+    symptoms_df = pd.DataFrame(symptoms, columns=['id', 'name', 'severity'])
+    factors_df = pd.DataFrame(factors, columns=['id', 'name', 'type'])
+
+    # Define relationships manually for scenario
+    # Path: Variance -> Symptom -> Factor -> Cause
+    # We will generate mappings for a few standard cases
+
+    # Mappings
+    # Cause Code -> Factor -> Symptom
+    # Note: Drill down is Variance -> Symptom -> Factor -> Cause (Root)
+    # So we map Cause (Root) <- Factor <- Symptom
+
+    mapping = [
+        # Cause: MC_ERROR_WB -> FACT-001 (Ultrasonic) -> SYMP-001 (Bonding Lift)
+        {'cause': 'MC_ERROR_WB', 'factor': 'FACT-001', 'symptom': 'SYMP-001'},
+        # Cause: EPOXY_OVERUSE -> FACT-003 (Viscosity) -> SYMP-004 (Incomplete Fill)
+        {'cause': 'EPOXY_OVERUSE', 'factor': 'FACT-003', 'symptom': 'SYMP-004'},
+         # Cause: MOLD_VOID -> FACT-004 (Curing Temp) -> SYMP-003 (Molding Void)
+        {'cause': 'MOLD_VOID', 'factor': 'FACT-004', 'symptom': 'SYMP-003'},
+    ]
+
+    rel_linked_to_symptom = [] # Variance -> Symptom
+    rel_caused_by_factor = []  # Symptom -> Factor
+    rel_traced_to_root = []    # Factor -> Cause
+
+    # We need variances to link to symptoms.
+    # In main(), we will use this function. But we need variance data.
+    # So we will return the mapping logic and apply it in main or pass variance_df here.
+    # Let's return the structural dataframes and a helper map.
+
+    # Construct Base Relationships for the static part (Symptom -> Factor -> Cause)
+    # Wait, the edges are: Symptom -[CAUSED_BY_FACTOR]-> Factor -[TRACED_TO_ROOT]-> Cause
+
+    processed_pairs = set()
+
+    for m in mapping:
+        # Symptom -> Factor
+        pair1 = (m['symptom'], m['factor'])
+        if pair1 not in processed_pairs:
+            rel_caused_by_factor.append({'from': m['symptom'], 'to': m['factor']})
+            processed_pairs.add(pair1)
+
+        # Factor -> Cause
+        pair2 = (m['factor'], m['cause'])
+        if pair2 not in processed_pairs:
+            rel_traced_to_root.append({'from': m['factor'], 'to': m['cause']})
+            processed_pairs.add(pair2)
+
+    return symptoms_df, factors_df, pd.DataFrame(rel_caused_by_factor), pd.DataFrame(rel_traced_to_root), mapping
+
+
+def assign_symptoms_to_variances(variances_df, mapping):
+    """Variance를 Symptom에 연결"""
+    rels = []
+
+    for _, row in variances_df.iterrows():
+        var_id = f"VAR-{row['variance_id']:05d}"
+        cause_code = row['cause_code']
+
+        # Find mapping for this cause
+        match = next((m for m in mapping if m['cause'] == cause_code), None)
+
+        if match:
+            rels.append({
+                'from': var_id,
+                'to': match['symptom']
+            })
+
+    return pd.DataFrame(rels)
+
 def generate_quality_defects():
     """품질 불량 (플레이스홀더)"""
     return pd.DataFrame([{
@@ -639,7 +869,7 @@ def generate_material_market_prices():
 
 def main():
     print("="*60)
-    print("반도체 패키징 데이터 생성 시작 (Full Version)")
+    print("반도체 패키징 데이터 생성 시작 (Enhanced Version)")
     print("="*60)
 
     # 1. 마스터 데이터
@@ -658,12 +888,19 @@ def main():
     costs_df = calculate_cost_accumulation(orders_df, cons_df, materials_df, ops_df, wcs_df, bom_df, routing_df)
     vars_df = generate_variance_analysis(costs_df, cons_df, ops_df)
 
+    # 3. [NEW] New Entities Generation
+    print("\n[New Entities] CostPool, MonthlyState, Drill-down 데이터 생성 중...")
+    pools_df, pool_allocs_df = generate_cost_pools(ops_df, wcs_df)
+    states_df, next_month_df = generate_monthly_product_states(orders_df, costs_df)
+    sym_df, fact_df, sym_fact_rel_df, fact_cause_rel_df, mapping = generate_symptoms_and_factors(cause_df)
+    var_sym_rel_df = assign_symptoms_to_variances(vars_df, mapping)
+
     # 추가 데이터 (플레이스홀더)
     qd_df = generate_quality_defects()
     ef_df = generate_equipment_failures()
     mp_df = generate_material_market_prices()
 
-    # 3. RDB 포맷 저장
+    # 4. RDB 포맷 저장
     print(f"\n[RDB] CSV 저장 중... ({RDB_DIR})")
     products_df.to_csv(f'{RDB_DIR}/product_master.csv', index=False, encoding='utf-8-sig')
     materials_df.to_csv(f'{RDB_DIR}/material_master.csv', index=False, encoding='utf-8-sig')
@@ -675,7 +912,7 @@ def main():
     costs_df.to_csv(f'{RDB_DIR}/cost_accumulation.csv', index=False, encoding='utf-8-sig')
     vars_df.to_csv(f'{RDB_DIR}/variance_analysis.csv', index=False, encoding='utf-8-sig')
 
-    # 4. Neo4j Import 포맷 변환 및 저장
+    # 5. Neo4j Import 포맷 변환 및 저장
     print(f"\n[Neo4j] Import CSV 저장 중... ({NEO4J_DIR})")
 
     # Product
@@ -716,6 +953,12 @@ def main():
     cause_neo.rename(columns={'cause_code': 'code', 'cause_category': 'category', 'cause_description': 'description', 'detail_description': 'detail'}, inplace=True)
     cause_neo.to_csv(f'{NEO4J_DIR}/causes.csv', index=False)
 
+    # [NEW] CostPool, MonthlyState, Symptom, Factor
+    pools_df.to_csv(f'{NEO4J_DIR}/cost_pools.csv', index=False)
+    states_df.to_csv(f'{NEO4J_DIR}/monthly_states.csv', index=False)
+    sym_df.to_csv(f'{NEO4J_DIR}/symptoms.csv', index=False)
+    fact_df.to_csv(f'{NEO4J_DIR}/factors.csv', index=False)
+
     # QualityDefect & EquipmentFailure & Market (Placeholder)
     qd_df.rename(columns={'defect_id': 'id'}, inplace=True)
     qd_df.to_csv(f'{NEO4J_DIR}/quality_defects.csv', index=False)
@@ -751,17 +994,43 @@ def main():
     caused.to_csv(f'{NEO4J_DIR}/rel_caused_by.csv', index=False)
 
     # CONSUMES (Order -> Material)
-    consumes = cons_df[['order_no', 'actual_material_cd', 'planned_qty', 'actual_qty', 'unit']].copy()
+    consumes = cons_df[['order_no', 'actual_material_cd', 'planned_qty', 'actual_qty', 'unit', 'batch_no']].copy()
     consumes['is_alternative'] = 'N'
     consumes.rename(columns={'order_no': 'from', 'actual_material_cd': 'to'}, inplace=True)
     consumes.to_csv(f'{NEO4J_DIR}/rel_consumes.csv', index=False)
 
     # WORKS_AT (Order -> WorkCenter)
-    works = ops_df[['order_no', 'workcenter_cd', 'standard_time_min', 'actual_time_min', 'efficiency_rate', 'worker_count']].copy()
+    works = ops_df[['order_no', 'workcenter_cd', 'standard_time_min', 'actual_time_min', 'efficiency_rate', 'worker_count', 'step_yield', 'step_loss_qty']].copy()
     works.rename(columns={'order_no': 'from', 'workcenter_cd': 'to'}, inplace=True)
     works.to_csv(f'{NEO4J_DIR}/rel_works_at.csv', index=False)
 
-    # === [NEW] "Spider Legs" Relationships for Variance ===
+    # [NEW] New Relationships
+
+    # INCURRED_COST (WorkCenter -> CostPool)
+    incurred = pools_df[['workcenter_cd', 'id']].copy()
+    incurred.rename(columns={'workcenter_cd': 'from', 'id': 'to'}, inplace=True)
+    incurred.to_csv(f'{NEO4J_DIR}/rel_incurred_cost.csv', index=False)
+
+    # ALLOCATES (CostPool -> ProductionOrder)
+    pool_allocs_df.to_csv(f'{NEO4J_DIR}/rel_allocates.csv', index=False)
+
+    # HAS_MONTHLY_STATE (Product -> MonthlyProductState)
+    has_state = states_df[['product_cd', 'id']].copy()
+    has_state.rename(columns={'product_cd': 'from', 'id': 'to'}, inplace=True)
+    has_state.to_csv(f'{NEO4J_DIR}/rel_has_monthly_state.csv', index=False)
+
+    # NEXT_MONTH (MonthlyProductState -> MonthlyProductState)
+    next_month_df.to_csv(f'{NEO4J_DIR}/rel_next_month.csv', index=False)
+
+    # Drill-down Path Rels
+    var_sym_rel_df.rename(columns={'variance_id': 'from', 'symptom_id': 'to'}, inplace=True) # Check col names
+    var_sym_rel_df.to_csv(f'{NEO4J_DIR}/rel_linked_to_symptom.csv', index=False)
+
+    sym_fact_rel_df.to_csv(f'{NEO4J_DIR}/rel_caused_by_factor.csv', index=False)
+    fact_cause_rel_df.to_csv(f'{NEO4J_DIR}/rel_traced_to_root.csv', index=False)
+
+
+    # === "Spider Legs" Relationships for Variance ===
 
     # RELATED_TO_MATERIAL (Variance -> Material)
     rel_mat = vars_df[['variance_id', 'material_cd']].dropna().copy()
@@ -776,7 +1045,6 @@ def main():
     rel_wc.to_csv(f'{NEO4J_DIR}/rel_variance_workcenter.csv', index=False)
 
     # HAS_DEFECT (Variance -> QualityDefect)
-    # Note: Using Variance as source instead of Cause for direct analysis, or as supplementary
     rel_defect = vars_df[['variance_id', 'defect_id']].dropna().copy()
     rel_defect['variance_id'] = rel_defect['variance_id'].apply(lambda x: f'VAR-{x:05d}')
     rel_defect.rename(columns={'variance_id': 'from', 'defect_id': 'to'}, inplace=True)

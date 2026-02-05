@@ -1,0 +1,33 @@
+Warning: NEO4J_URI or NEO4J_PASSWORD not set. API will return empty data.
+================================================================================
+  Variance Graph API Server
+================================================================================
+
+Server starting...
+Address: http://localhost:8000
+
+Available APIs:
+  GET /api/variance/<id>/graph
+  GET /api/cause/<code>/graph
+  GET /api/product/<product_cd>/graph
+  GET /api/material/<material_id>/graph
+  GET /api/workcenter/<workcenter_id>/graph
+  GET /api/production-order/<order_no>/graph
+  GET /api/node/<id>/expand
+  GET /api/overview
+  GET /api/summary
+  GET /api/filters
+  POST /api/filtered_summary
+  GET /api/variances/by-type
+
+Open http://localhost:8000 in browser
+================================================================================
+
+ * Serving Flask app 'graph_api_server'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8000
+ * Running on http://192.168.0.2:8000
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [05/Feb/2026 06:05:10] "HEAD /api/overview HTTP/1.1" 200 -
