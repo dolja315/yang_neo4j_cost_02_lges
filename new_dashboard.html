@@ -107,6 +107,11 @@
             <!-- Waterfall Chart -->
             <div class="mb-8">
                 <h4 class="font-semibold text-gray-700 mb-2">💰 Cost Breakdown (Waterfall)</h4>
+                <div class="mb-2">
+                    <select id="orderSelect" class="w-full border p-2 rounded text-sm bg-white" onchange="if(this.value) openOrderDrilldown(this.value)">
+                        <option value="">-- Select Production Order --</option>
+                    </select>
+                </div>
                 <div id="waterfall-chart" class="w-full h-64 bg-gray-100 rounded flex items-center justify-center">
                     <span class="text-gray-400">Select an order to view costs</span>
                 </div>
@@ -175,11 +180,18 @@
             const container = document.getElementById('process-flow');
             container.innerHTML = '<div class="spinner"></div>';
 
+            // Decoupled alerts loading
+            loadAlerts();
+
             try {
                 const res = await fetch('/api/process-status');
                 if(!res.ok) throw new Error("Failed to fetch process status");
                 const data = await res.json();
-                // data example: { 'WC-DA-01': {name: 'Die Attach', risk: 5, type: 'DIE_ATTACH'}, ... }
+
+                if (!data || data.length === 0) {
+                     container.innerHTML = '<div class="w-full text-center text-gray-500 py-8">No process data available.</div>';
+                     return;
+                }
 
                 // Define order
                 const steps = [
@@ -221,9 +233,6 @@
                 });
                 container.innerHTML = html;
 
-                // Load alerts list
-                loadAlerts();
-
             } catch (e) {
                 console.error(e);
                 container.innerHTML = `<div class="text-red-500 text-center">Error loading heatmap: ${e.message}</div>`;
@@ -232,14 +241,18 @@
 
         async function loadAlerts() {
             const container = document.getElementById('alerts-list');
-            // Mocking alerts fetch for now, or use /api/variances/by-type if available
-            // Let's use a real endpoint if we created one, otherwise simulated.
-            // We can reuse /api/dashboard-data to get top orders
+
             try {
                 const res = await fetch('/api/dashboard-data', {
                     method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
                 });
                 const data = await res.json();
+
+                if(!data.top_orders || data.top_orders.length === 0) {
+                    container.innerHTML = '<div class="text-gray-400 text-sm p-4 text-center">No recent alerts found.</div>';
+                    return;
+                }
+
                 const topOrders = data.top_orders.slice(0, 5);
 
                 container.innerHTML = topOrders.map(order => `
@@ -254,8 +267,27 @@
                     </div>
                 `).join('');
             } catch(e) {
-                container.innerHTML = '<div class="text-gray-400 text-sm">Failed to load alerts</div>';
+                console.error("Alerts error:", e);
+                container.innerHTML = '<div class="text-gray-400 text-sm p-4">Failed to load alerts</div>';
             }
+        }
+
+        async function loadOrderSelect() {
+            try {
+                const res = await fetch('/api/dashboard-data', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+                });
+                const data = await res.json();
+                const select = document.getElementById('orderSelect');
+                if(data.top_orders) {
+                    data.top_orders.forEach(o => {
+                        const opt = document.createElement('option');
+                        opt.value = o.order_no;
+                        opt.textContent = `${o.order_no} (${o.product}) - ${formatMoney(o.total_variance)}`;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch(e) { console.error("Failed to load order select", e); }
         }
 
         // --- Drill-down Drawer ---
@@ -382,23 +414,23 @@
                 let type = 'production-order';
                 if(rootId.startsWith('WC')) type = 'workcenter';
                 else if(rootId.startsWith('MAT')) type = 'material';
-                else if(rootId.startsWith('VAR')) type = 'variance'; // Endpoint for variance graph needed
+                else if(rootId.startsWith('VAR')) type = 'variance';
                 else if(rootId.startsWith('PKG')) type = 'product';
-
-                // Use the expand endpoint for generic or specific graph endpoints
-                // For Tab 2/3 requirements, we need a root cause graph.
-                // Existing /api/production-order/<id>/graph seems suitable.
 
                 let endpoint = `/api/${type}/${rootId}/graph`;
                 if (type === 'variance') endpoint = `/api/variance/${rootId}/graph`;
 
                 const res = await fetch(endpoint);
+                if(!res.ok) throw new Error("API Error: " + res.statusText);
                 const data = await res.json();
 
                 if(data.error) throw new Error(data.error);
+                if(!data.nodes || !Array.isArray(data.nodes)) {
+                     throw new Error("Invalid graph data format (nodes missing)");
+                }
 
                 const nodes = new vis.DataSet(data.nodes);
-                const edges = new vis.DataSet(data.edges);
+                const edges = new vis.DataSet(data.edges || []);
 
                 const options = {
                     nodes: { shape: 'dot', font: { size: 12 } },
@@ -460,7 +492,7 @@
 
         // Init
         document.addEventListener('DOMContentLoaded', () => {
-            // Default load
+            loadOrderSelect();
         });
 
     </script>
