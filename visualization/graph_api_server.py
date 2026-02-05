@@ -1445,7 +1445,11 @@ def get_process_status():
         query = """
         MATCH (wc:WorkCenter)
         OPTIONAL MATCH (wc)<-[:WORKS_AT]-(po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
-        WITH wc, count(v) as risk_level
+        WITH wc, collect(distinct v) as vars1
+        OPTIONAL MATCH (wc)<-[:OCCURRED_AT]-(v2:Variance)
+        WITH wc, vars1 + collect(distinct v2) as all_vars
+        UNWIND (CASE WHEN all_vars = [] THEN [null] ELSE all_vars END) as v
+        WITH wc, count(distinct v) as risk_level
         RETURN wc.id as id, wc.name as label, risk_level
         ORDER BY wc.id
         """
