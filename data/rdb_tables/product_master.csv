@@ -1,0 +1,7 @@
+﻿product_cd,product_name,product_type,battery_chemistry,capacity_kwh,standard_cost,active_flag,created_date
+PKG-BGA-256,256-ball BGA Package,BGA,Gold,256.0,15000,Y,2024-01-01
+PKG-BGA-144,144-ball BGA Package,BGA,Gold,144.0,12000,Y,2024-01-01
+PKG-QFP-100,100-pin QFP Package,QFP,Copper,100.0,5000,Y,2024-01-01
+PKG-QFP-64,64-pin QFP Package,QFP,Copper,64.0,3500,Y,2024-01-01
+PKG-SOP-28,28-pin SOP Package,SOP,Copper,28.0,1200,Y,2024-01-01
+PKG-SOP-16,16-pin SOP Package,SOP,Copper,16.0,800,Y,2024-01-01

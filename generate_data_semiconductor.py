@@ -492,7 +492,7 @@ def calculate_cost_accumulation(production_orders_df, material_consumption_df, m
     return pd.DataFrame(costs)
 
 def generate_variance_analysis(cost_accumulation_df, material_consumption_df, operation_actual_df):
-    """원가차이 분석 및 원인 할당"""
+    """원가차이 분석 및 원인 할당, 직접 연결 정보 추가"""
     variances = []
     var_id = 1
 
@@ -510,14 +510,32 @@ def generate_variance_analysis(cost_accumulation_df, material_consumption_df, op
         if abs(amount) > 5000000: severity = 'HIGH'
 
         cause_code = None
+        material_cd = None
+        workcenter_cd = None
+        defect_id = None
+        failure_id = None
 
-        # 원인 할당 로직
+        # 원인 할당 및 관계 설정 로직
         if element == 'MATERIAL':
             variance_name = '재료비차이'
             variance_type = 'DIFF'
 
             # 소비 실적 확인
             cons = material_consumption_df[material_consumption_df['order_no'] == order_no]
+
+            # 자재 식별 (가장 금액이 큰 자재 또는 특정 시나리오 자재)
+            if not cons.empty:
+                # 간단히 첫번째 또는 특정 조건 자재 선택
+                # 시나리오: 에폭시 또는 골드 와이어
+                epoxy_cons = cons[cons['actual_material_cd'] == 'MAT-EMC-01']
+                wire_cons = cons[cons['actual_material_cd'].str.contains('WIRE')]
+
+                if not epoxy_cons.empty and amount > 0: # 과다 사용 등
+                    material_cd = 'MAT-EMC-01'
+                elif not wire_cons.empty:
+                    material_cd = wire_cons.iloc[0]['actual_material_cd']
+                else:
+                    material_cd = cons.iloc[0]['actual_material_cd']
 
             # 골드 와이어 사용 제품인지 확인
             has_gold = cons['actual_material_cd'].str.contains('WIRE-AU').any()
@@ -533,12 +551,22 @@ def generate_variance_analysis(cost_accumulation_df, material_consumption_df, op
                      cause_code = 'EPOXY_OVERUSE'
 
             if not cause_code:
-                cause_code = 'DIE_YIELD_LOW' if amount > 0 else 'WAFER_CRACK'
+                if amount > 0:
+                    cause_code = 'DIE_YIELD_LOW'
+                    # 품질 불량 연결 (가상의 불량 ID 할당)
+                    defect_id = 'QD-001'
+                else:
+                    cause_code = 'WAFER_CRACK'
+                    defect_id = 'QD-001'
 
         elif element == 'LABOR':
             variance_name = '노무비차이'
             variance_type = 'DIFF'
             ops = operation_actual_df[operation_actual_df['order_no'] == order_no]
+
+            if not ops.empty:
+                workcenter_cd = ops.iloc[0]['workcenter_cd']
+
             avg_eff = ops['efficiency_rate'].mean()
 
             if avg_eff < 90:
@@ -549,10 +577,17 @@ def generate_variance_analysis(cost_accumulation_df, material_consumption_df, op
         else: # OVERHEAD
             variance_name = '경비차이'
             variance_type = 'DIFF'
+
+            # WorkCenter 연결 (LABOR와 공유하거나 임의 지정)
+            ops = operation_actual_df[operation_actual_df['order_no'] == order_no]
+            if not ops.empty:
+                workcenter_cd = ops.iloc[0]['workcenter_cd']
+
             if cost['calculation_date'].startswith('2024-01'):
                 cause_code = 'POWER_COST_HIKE'
             else:
                 cause_code = 'MC_ERROR_WB'
+                failure_id = 'EF-001' # 설비 고장 연결
 
         variances.append({
             'variance_id': var_id,
@@ -564,7 +599,11 @@ def generate_variance_analysis(cost_accumulation_df, material_consumption_df, op
             'variance_percent': round(percent, 2),
             'cause_code': cause_code,
             'severity': severity,
-            'analysis_date': cost['calculation_date']
+            'analysis_date': cost['calculation_date'],
+            'material_cd': material_cd,
+            'workcenter_cd': workcenter_cd,
+            'defect_id': defect_id,
+            'failure_id': failure_id
         })
         var_id += 1
 
@@ -721,6 +760,34 @@ def main():
     works = ops_df[['order_no', 'workcenter_cd', 'standard_time_min', 'actual_time_min', 'efficiency_rate', 'worker_count']].copy()
     works.rename(columns={'order_no': 'from', 'workcenter_cd': 'to'}, inplace=True)
     works.to_csv(f'{NEO4J_DIR}/rel_works_at.csv', index=False)
+
+    # === [NEW] "Spider Legs" Relationships for Variance ===
+
+    # RELATED_TO_MATERIAL (Variance -> Material)
+    rel_mat = vars_df[['variance_id', 'material_cd']].dropna().copy()
+    rel_mat['variance_id'] = rel_mat['variance_id'].apply(lambda x: f'VAR-{x:05d}')
+    rel_mat.rename(columns={'variance_id': 'from', 'material_cd': 'to'}, inplace=True)
+    rel_mat.to_csv(f'{NEO4J_DIR}/rel_variance_material.csv', index=False)
+
+    # OCCURRED_AT (Variance -> WorkCenter)
+    rel_wc = vars_df[['variance_id', 'workcenter_cd']].dropna().copy()
+    rel_wc['variance_id'] = rel_wc['variance_id'].apply(lambda x: f'VAR-{x:05d}')
+    rel_wc.rename(columns={'variance_id': 'from', 'workcenter_cd': 'to'}, inplace=True)
+    rel_wc.to_csv(f'{NEO4J_DIR}/rel_variance_workcenter.csv', index=False)
+
+    # HAS_DEFECT (Variance -> QualityDefect)
+    # Note: Using Variance as source instead of Cause for direct analysis, or as supplementary
+    rel_defect = vars_df[['variance_id', 'defect_id']].dropna().copy()
+    rel_defect['variance_id'] = rel_defect['variance_id'].apply(lambda x: f'VAR-{x:05d}')
+    rel_defect.rename(columns={'variance_id': 'from', 'defect_id': 'to'}, inplace=True)
+    rel_defect.to_csv(f'{NEO4J_DIR}/rel_variance_defect.csv', index=False)
+
+    # HAS_FAILURE (Variance -> EquipmentFailure)
+    rel_fail = vars_df[['variance_id', 'failure_id']].dropna().copy()
+    rel_fail['variance_id'] = rel_fail['variance_id'].apply(lambda x: f'VAR-{x:05d}')
+    rel_fail.rename(columns={'variance_id': 'from', 'failure_id': 'to'}, inplace=True)
+    rel_fail.to_csv(f'{NEO4J_DIR}/rel_variance_failure.csv', index=False)
+
 
     # Empty Placeholders for other rels to avoid file not found errors in loader
     pd.DataFrame(columns=['from', 'to']).to_csv(f'{NEO4J_DIR}/rel_has_defect.csv', index=False)

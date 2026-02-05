@@ -1412,8 +1412,20 @@ def test_route():
     return jsonify({'status': 'ok', 'message': 'API is working!'})
 
 @app.route('/')
+def new_dashboard():
+    """새로운 통합 대시보드"""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    html_path = os.path.join(base_dir, 'new_dashboard.html')
+    if not os.path.exists(html_path):
+        return f"File not found: {html_path}", 404
+    with open(html_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    from flask import Response
+    return Response(content, mimetype='text/html')
+
+@app.route('/dashboard.html')
 def index():
-    """메인 페이지 - 대시보드 홈"""
+    """기존 대시보드 (Tab 1용 iframe)"""
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     html_path = os.path.join(base_dir, 'dashboard.html')
     if not os.path.exists(html_path):
@@ -1422,6 +1434,69 @@ def index():
         content = f.read()
     from flask import Response
     return Response(content, mimetype='text/html')
+
+@app.route('/api/process-status', methods=['GET'])
+def get_process_status():
+    """공정별 Variance 상태 조회 (Heatmap용)"""
+    if not neo4j_conn.driver:
+        return jsonify([])
+
+    with neo4j_conn.driver.session() as session:
+        query = """
+        MATCH (wc:WorkCenter)
+        OPTIONAL MATCH (wc)<-[:WORKS_AT]-(po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
+        WITH wc, count(v) as risk_level
+        RETURN wc.id as id, wc.name as label, risk_level
+        ORDER BY wc.id
+        """
+        results = session.run(query).data()
+        return jsonify(results)
+
+@app.route('/api/order-costs/<order_id>', methods=['GET'])
+def get_order_costs(order_id):
+    """생산오더 비용 분석 (Waterfall Chart용)"""
+    if not neo4j_conn.driver:
+        return jsonify({'error': 'No DB connection'}), 500
+
+    with neo4j_conn.driver.session() as session:
+        # 1. Planned Cost 계산 (Product Standard Cost * Order Actual Qty)
+        # 2. Variance 조회
+        query = """
+        MATCH (po:ProductionOrder {id: $order_id})
+        OPTIONAL MATCH (po)-[:PRODUCES]->(p:Product)
+        OPTIONAL MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
+        WITH po, p, collect({element: v.cost_element, amount: v.variance_amount}) as variances
+
+        RETURN
+            COALESCE(p.standard_cost, 0) * po.actual_qty as total_planned,
+            variances
+        """
+        result = session.run(query, order_id=order_id).single()
+
+        if not result:
+            return jsonify({'error': 'Order not found'}), 404
+
+        total_planned = result['total_planned'] or 0
+        variances = [v for v in result['variances'] if v['amount'] is not None]
+
+        total_variance = sum(v['amount'] for v in variances)
+        total_actual = total_planned + total_variance
+
+        return jsonify({
+            'total_planned': total_planned,
+            'total_actual': total_actual,
+            'variances': variances
+        })
+
+@app.route('/api/graph-data', methods=['GET'])
+def get_graph_data():
+    """Graph Explorer용 데이터 (Generic)"""
+    node_id = request.args.get('id')
+    if not node_id:
+        return jsonify({'error': 'Missing id parameter'}), 400
+
+    # 기존 expand_node 로직 재사용 (이미 "Spider Legs" 확장을 지원함)
+    return expand_node(node_id)
 
 @app.route('/analysis.html')
 def analysis():

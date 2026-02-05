@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semiconductor Cost Variance Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f6fa; overflow: hidden; }
+        .tab-content { display: none; height: calc(100vh - 50px); }
+        .tab-content.active { display: block; }
+        .process-box { transition: all 0.3s; cursor: pointer; }
+        .process-box:hover { transform: translateY(-5px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .drawer {
+            position: fixed; right: -600px; top: 50px; width: 600px; height: calc(100% - 50px);
+            background: white; box-shadow: -5px 0 15px rgba(0,0,0,0.1);
+            transition: right 0.3s ease-in-out; z-index: 50; overflow-y: auto;
+        }
+        .drawer.open { right: 0; }
+        #mynetwork { width: 100%; height: 100%; }
+        .spinner {
+            border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%;
+            width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- Global Navigation -->
+    <nav class="h-[50px] bg-gradient-to-r from-indigo-600 to-purple-700 text-white flex items-center px-6 shadow-md">
+        <h1 class="font-bold text-lg mr-8">🏭 SemiCost <span class="opacity-80 text-sm font-normal">Variance Analytics</span></h1>
+        <div class="flex space-x-1">
+            <button class="px-4 py-3 text-sm font-medium border-b-2 border-transparent hover:bg-white/10 transition" onclick="switchTab(1)" id="btn-tab-1">
+                📊 Dashboard
+            </button>
+            <button class="px-4 py-3 text-sm font-medium border-b-2 border-transparent hover:bg-white/10 transition" onclick="switchTab(2)" id="btn-tab-2">
+                🔥 Process Monitoring
+            </button>
+            <button class="px-4 py-3 text-sm font-medium border-b-2 border-transparent hover:bg-white/10 transition" onclick="switchTab(3)" id="btn-tab-3">
+                🕸️ Graph Explorer
+            </button>
+        </div>
+    </nav>
+
+    <!-- Tab 1: Original Dashboard -->
+    <div id="tab-1" class="tab-content active">
+        <iframe src="/dashboard.html" class="w-full h-full border-none"></iframe>
+    </div>
+
+    <!-- Tab 2: Process Monitoring -->
+    <div id="tab-2" class="tab-content p-8 overflow-auto">
+        <div class="max-w-7xl mx-auto">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Process Status Heatmap</h2>
+
+            <!-- Process Flow Diagram -->
+            <div class="flex justify-between items-center relative mb-12">
+                <!-- Connecting Line -->
+                <div class="absolute top-1/2 left-0 w-full h-2 bg-gray-200 -z-10 transform -translate-y-1/2 rounded"></div>
+
+                <!-- Process Steps (Dynamic) -->
+                <div id="process-flow" class="w-full flex justify-between">
+                    <!-- Loading placeholder -->
+                    <div class="w-full text-center text-gray-500">Loading process data...</div>
+                </div>
+            </div>
+
+            <!-- Recent Alerts -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-4">🚨 Recent High Variance Alerts</h3>
+                <div id="alerts-list" class="space-y-3">
+                    <!-- List items will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab 3: Graph Explorer -->
+    <div id="tab-3" class="tab-content relative">
+        <div id="mynetwork" class="bg-gray-50"></div>
+
+        <!-- Graph Controls -->
+        <div class="absolute top-4 left-4 bg-white p-4 rounded shadow-md w-80">
+            <h3 class="font-bold text-gray-700 mb-2">Explorer Controls</h3>
+            <div class="flex gap-2 mb-2">
+                <input type="text" id="graph-search-input" placeholder="Search Order/Variance ID..." class="flex-1 border p-1 rounded text-sm">
+                <button onclick="searchGraphNode()" class="bg-indigo-600 text-white px-3 rounded text-sm">Go</button>
+            </div>
+            <div class="text-xs text-gray-500">
+                Double-click a node to expand.<br>
+                Drag to rearrange.
+            </div>
+            <div id="graph-status" class="mt-2 text-xs font-semibold text-indigo-600"></div>
+        </div>
+    </div>
+
+    <!-- Right Drawer (Shared for Tab 2 Drill-down) -->
+    <div id="drawer" class="drawer flex flex-col">
+        <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+            <h3 class="font-bold text-lg text-gray-800" id="drawer-title">Analysis</h3>
+            <button onclick="closeDrawer()" class="text-gray-500 hover:text-red-500 text-xl">&times;</button>
+        </div>
+
+        <div class="p-4 flex-1 overflow-y-auto">
+            <!-- Waterfall Chart -->
+            <div class="mb-8">
+                <h4 class="font-semibold text-gray-700 mb-2">💰 Cost Breakdown (Waterfall)</h4>
+                <div id="waterfall-chart" class="w-full h-64 bg-gray-100 rounded flex items-center justify-center">
+                    <span class="text-gray-400">Select an order to view costs</span>
+                </div>
+            </div>
+
+            <!-- Mini Graph -->
+            <div class="mb-8">
+                <div class="flex justify-between items-center mb-2">
+                    <h4 class="font-semibold text-gray-700">🕸️ Root Cause Graph</h4>
+                    <button onclick="openInExplorer()" class="text-xs text-indigo-600 hover:underline">Full Screen ↗</button>
+                </div>
+                <div id="mini-network" class="w-full h-64 bg-gray-100 rounded border"></div>
+            </div>
+
+            <!-- Details Table -->
+            <div>
+                <h4 class="font-semibold text-gray-700 mb-2">📋 Details</h4>
+                <div id="drawer-details" class="text-sm text-gray-600"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- State ---
+        let currentTab = 1;
+        let networkInstance = null;
+        let miniNetworkInstance = null;
+        let currentFocusId = null;
+
+        // --- Navigation ---
+        function switchTab(tabId) {
+            currentTab = tabId;
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+
+            // Update buttons
+            for(let i=1; i<=3; i++) {
+                const btn = document.getElementById(`btn-tab-${i}`);
+                if (i === tabId) {
+                    btn.classList.add('border-white');
+                    btn.classList.remove('border-transparent');
+                } else {
+                    btn.classList.remove('border-white');
+                    btn.classList.add('border-transparent');
+                }
+            }
+
+            if (tabId === 2) loadProcessHeatmap();
+            if (tabId === 3 && currentFocusId) loadGraph(currentFocusId, 'mynetwork');
+        }
+
+        function closeDrawer() {
+            document.getElementById('drawer').classList.remove('open');
+        }
+
+        function openInExplorer() {
+            if (currentFocusId) {
+                switchTab(3);
+                loadGraph(currentFocusId, 'mynetwork');
+                closeDrawer();
+            }
+        }
+
+        // --- Tab 2: Process Monitoring ---
+        async function loadProcessHeatmap() {
+            const container = document.getElementById('process-flow');
+            container.innerHTML = '<div class="spinner"></div>';
+
+            try {
+                const res = await fetch('/api/process-status');
+                if(!res.ok) throw new Error("Failed to fetch process status");
+                const data = await res.json();
+                // data example: { 'WC-DA-01': {name: 'Die Attach', risk: 5, type: 'DIE_ATTACH'}, ... }
+
+                // Define order
+                const steps = [
+                    { id: 'WC-DA-01', label: 'Die Attach' },
+                    { id: 'WC-WB-01', label: 'Wire Bond' },
+                    { id: 'WC-MD-01', label: 'Molding' },
+                    { id: 'WC-MK-01', label: 'Marking' }
+                ];
+
+                let html = '';
+                steps.forEach(step => {
+                    const info = data.find(d => d.id === step.id) || { risk_level: 0 };
+                    const risk = info.risk_level;
+                    let colorClass = 'bg-green-100 border-green-500 text-green-800';
+                    let icon = '✅';
+
+                    if (risk > 10) {
+                        colorClass = 'bg-red-100 border-red-500 text-red-800';
+                        icon = '🔥';
+                    } else if (risk > 0) {
+                        colorClass = 'bg-yellow-100 border-yellow-500 text-yellow-800';
+                        icon = '⚠️';
+                    }
+
+                    html += `
+                        <div class="process-box w-48 p-4 rounded-lg border-l-4 ${colorClass} bg-white shadow-sm relative z-10"
+                             onclick="openProcessDrilldown('${step.id}', '${step.label}')">
+                            <div class="text-xs font-bold uppercase tracking-wider mb-1 opacity-70">Step</div>
+                            <div class="font-bold text-lg mb-2">${step.label}</div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-2xl">${icon}</span>
+                                <div class="text-right">
+                                    <div class="text-xs">Variances</div>
+                                    <div class="font-bold text-xl">${risk}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+
+                // Load alerts list
+                loadAlerts();
+
+            } catch (e) {
+                console.error(e);
+                container.innerHTML = `<div class="text-red-500 text-center">Error loading heatmap: ${e.message}</div>`;
+            }
+        }
+
+        async function loadAlerts() {
+            const container = document.getElementById('alerts-list');
+            // Mocking alerts fetch for now, or use /api/variances/by-type if available
+            // Let's use a real endpoint if we created one, otherwise simulated.
+            // We can reuse /api/dashboard-data to get top orders
+            try {
+                const res = await fetch('/api/dashboard-data', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+                });
+                const data = await res.json();
+                const topOrders = data.top_orders.slice(0, 5);
+
+                container.innerHTML = topOrders.map(order => `
+                    <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded border-b cursor-pointer" onclick="openOrderDrilldown('${order.order_no}')">
+                        <div>
+                            <div class="font-bold text-indigo-600">${order.order_no}</div>
+                            <div class="text-xs text-gray-500">${order.product} | ${order.work_center}</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-bold text-red-500">${new Intl.NumberFormat('ko-KR', {style:'currency', currency:'KRW'}).format(order.total_variance)}</div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch(e) {
+                container.innerHTML = '<div class="text-gray-400 text-sm">Failed to load alerts</div>';
+            }
+        }
+
+        // --- Drill-down Drawer ---
+        async function openProcessDrilldown(wcId, wcLabel) {
+            document.getElementById('drawer-title').textContent = `Analysis: ${wcLabel}`;
+            document.getElementById('drawer').classList.add('open');
+
+            // For process drilldown, maybe show aggregated waterfall?
+            // For now, let's just show top variances for this WC
+            // We need an endpoint for this. Reusing dashboard-data with filter
+            document.getElementById('waterfall-chart').innerHTML = '<div class="text-gray-400">Select an order from the list below to view costs</div>';
+
+            // Load graph for WorkCenter
+            currentFocusId = wcId;
+            loadGraph(wcId, 'mini-network');
+
+            // Show list of orders in details
+            const detailsDiv = document.getElementById('drawer-details');
+            detailsDiv.innerHTML = '<div class="spinner"></div>';
+
+            const res = await fetch('/api/dashboard-data', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ work_center: wcId })
+            });
+            const data = await res.json();
+
+            let html = '<ul class="space-y-2">';
+            data.top_orders.slice(0, 10).forEach(o => {
+                html += `<li class="flex justify-between border-b pb-1 cursor-pointer hover:text-indigo-600" onclick="openOrderDrilldown('${o.order_no}')">
+                    <span>${o.order_no}</span>
+                    <span class="text-red-500">${new Intl.NumberFormat('ko-KR').format(o.total_variance)}</span>
+                </li>`;
+            });
+            html += '</ul>';
+            detailsDiv.innerHTML = html;
+        }
+
+        async function openOrderDrilldown(orderId) {
+            document.getElementById('drawer-title').textContent = `Order: ${orderId}`;
+            document.getElementById('drawer').classList.add('open');
+            currentFocusId = orderId;
+
+            // Load Waterfall
+            loadWaterfall(orderId);
+
+            // Load Graph
+            loadGraph(orderId, 'mini-network');
+
+            document.getElementById('drawer-details').innerHTML = `Viewing details for Production Order <b>${orderId}</b>. Check the Waterfall chart for cost breakdown.`;
+        }
+
+        async function loadWaterfall(orderId) {
+            const container = document.getElementById('waterfall-chart');
+            container.innerHTML = '<div class="spinner"></div>';
+
+            try {
+                const res = await fetch(`/api/order-costs/${orderId}`);
+                if(!res.ok) throw new Error("Failed to load costs");
+                const data = await res.json(); // Expected: { planned: {MATERIAL:..., LABOR:...}, actual: {...}, variances: [{element:..., amount:...}] }
+
+                // Prepare Plotly data
+                const x = [];
+                const y = [];
+                const measure = [];
+                const text = [];
+
+                // Base
+                x.push("Planned Cost");
+                y.push(data.total_planned);
+                measure.push("absolute");
+                text.push(formatMoney(data.total_planned));
+
+                // Variances
+                data.variances.forEach(v => {
+                    x.push(v.element);
+                    y.push(v.amount);
+                    measure.push("relative");
+                    text.push((v.amount > 0 ? "+" : "") + formatMoney(v.amount));
+                });
+
+                // Final
+                x.push("Actual Cost");
+                y.push(data.total_actual);
+                measure.push("total");
+                text.push(formatMoney(data.total_actual));
+
+                const plotData = [{
+                    type: "waterfall",
+                    orientation: "v",
+                    measure: measure,
+                    x: x,
+                    textposition: "outside",
+                    text: text,
+                    y: y,
+                    connector: { line: { color: "rgb(63, 63, 63)" } },
+                    decreasing: { marker: { color: "#2ecc71" } },
+                    increasing: { marker: { color: "#e74c3c" } },
+                    totals: { marker: { color: "#3498db" } }
+                }];
+
+                const layout = {
+                    title: { text: "Cost Variance Waterfall" },
+                    waterfallgap: 0.3,
+                    margin: { t: 50, b: 50, l: 50, r: 50 },
+                    height: 250
+                };
+
+                container.innerHTML = '';
+                Plotly.newPlot('waterfall-chart', plotData, layout, {displayModeBar: false});
+
+            } catch(e) {
+                container.innerHTML = `<div class="text-red-500 text-sm p-4">${e.message}</div>`;
+            }
+        }
+
+        // --- Tab 3: Graph Explorer ---
+        async function loadGraph(rootId, containerId) {
+            const container = document.getElementById(containerId);
+            const statusEl = document.getElementById('graph-status');
+            if(statusEl) statusEl.textContent = `Loading ${rootId}...`;
+
+            try {
+                // Determine endpoint based on ID pattern
+                let type = 'production-order';
+                if(rootId.startsWith('WC')) type = 'workcenter';
+                else if(rootId.startsWith('MAT')) type = 'material';
+                else if(rootId.startsWith('VAR')) type = 'variance'; // Endpoint for variance graph needed
+                else if(rootId.startsWith('PKG')) type = 'product';
+
+                // Use the expand endpoint for generic or specific graph endpoints
+                // For Tab 2/3 requirements, we need a root cause graph.
+                // Existing /api/production-order/<id>/graph seems suitable.
+
+                let endpoint = `/api/${type}/${rootId}/graph`;
+                if (type === 'variance') endpoint = `/api/variance/${rootId}/graph`;
+
+                const res = await fetch(endpoint);
+                const data = await res.json();
+
+                if(data.error) throw new Error(data.error);
+
+                const nodes = new vis.DataSet(data.nodes);
+                const edges = new vis.DataSet(data.edges);
+
+                const options = {
+                    nodes: { shape: 'dot', font: { size: 12 } },
+                    edges: { arrows: 'to', smooth: { type: 'cubicBezier' } },
+                    physics: {
+                        stabilization: true,
+                        barnesHut: { gravitationalConstant: -3000, springLength: 200 }
+                    }
+                };
+
+                const network = new vis.Network(container, { nodes, edges }, options);
+
+                network.on("doubleClick", async function (params) {
+                    if (params.nodes.length === 1) {
+                        const nodeId = params.nodes[0];
+                        await expandNode(nodeId, nodes, edges);
+                    }
+                });
+
+                if(containerId === 'mynetwork') networkInstance = network;
+                else miniNetworkInstance = network;
+
+                if(statusEl) statusEl.textContent = `Loaded ${nodes.length} nodes.`;
+
+            } catch(e) {
+                console.error(e);
+                if(statusEl) statusEl.textContent = "Error loading graph.";
+            }
+        }
+
+        async function expandNode(nodeId, nodes, edges) {
+            try {
+                const res = await fetch(`/api/node/${nodeId}/expand`);
+                const data = await res.json();
+
+                data.nodes.forEach(n => {
+                    if(!nodes.get(n.id)) nodes.add(n);
+                });
+                data.edges.forEach(e => {
+                    if(!edges.get(e.id)) edges.add(e);
+                });
+            } catch(e) {
+                console.error("Expand failed", e);
+            }
+        }
+
+        function searchGraphNode() {
+            const id = document.getElementById('graph-search-input').value;
+            if(id) {
+                currentFocusId = id;
+                loadGraph(id, 'mynetwork');
+            }
+        }
+
+        // --- Utils ---
+        function formatMoney(amount) {
+            return new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(amount);
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            // Default load
+        });
+
+    </script>
+</body>
+</html>

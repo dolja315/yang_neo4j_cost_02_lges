@@ -96,6 +96,7 @@ class Neo4jDataLoader:
                 "CREATE INDEX workcenter_process IF NOT EXISTS FOR (wc:WorkCenter) ON (wc.process_type)",
                 "CREATE INDEX po_order_date IF NOT EXISTS FOR (po:ProductionOrder) ON (po.order_date)",
                 "CREATE INDEX variance_element IF NOT EXISTS FOR (v:Variance) ON (v.cost_element)",
+                "CREATE INDEX variance_type IF NOT EXISTS FOR (v:Variance) ON (v.variance_type)",
                 "CREATE INDEX variance_severity IF NOT EXISTS FOR (v:Variance) ON (v.severity)"
             ]
             
@@ -518,25 +519,66 @@ class Neo4jDataLoader:
                         CREATE (m)-[:MARKET_PRICE]->(mm)
                     """, dict(row))
             print(f"  [OK] MARKET_PRICE: {len(df)}개")
+
+        # === [NEW] "Spider Legs" Relationships for Variance ===
+
+        # RELATED_TO_MATERIAL (Variance -> Material)
+        csv_file = f'{self.data_dir}/rel_variance_material.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  RELATED_TO_MATERIAL (Direct)"):
+                    session.run("""
+                        MATCH (v:Variance {id: $from})
+                        MATCH (m:Material {id: $to})
+                        CREATE (v)-[:RELATED_TO_MATERIAL]->(m)
+                    """, dict(row))
+            print(f"  [OK] RELATED_TO_MATERIAL (Direct): {len(df)}개")
+
+        # OCCURRED_AT (Variance -> WorkCenter)
+        csv_file = f'{self.data_dir}/rel_variance_workcenter.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  OCCURRED_AT"):
+                    session.run("""
+                        MATCH (v:Variance {id: $from})
+                        MATCH (wc:WorkCenter {id: $to})
+                        CREATE (v)-[:OCCURRED_AT]->(wc)
+                    """, dict(row))
+            print(f"  [OK] OCCURRED_AT: {len(df)}개")
+
+        # HAS_DEFECT (Variance -> QualityDefect)
+        csv_file = f'{self.data_dir}/rel_variance_defect.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  HAS_DEFECT (Direct)"):
+                    session.run("""
+                        MATCH (v:Variance {id: $from})
+                        MATCH (qd:QualityDefect {id: $to})
+                        CREATE (v)-[:HAS_DEFECT]->(qd)
+                    """, dict(row))
+            print(f"  [OK] HAS_DEFECT (Direct): {len(df)}개")
+
+        # HAS_FAILURE (Variance -> EquipmentFailure)
+        csv_file = f'{self.data_dir}/rel_variance_failure.csv'
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            with self.driver.session(database=self.database) as session:
+                for _, row in tqdm(df.iterrows(), total=len(df), desc="  HAS_FAILURE (Direct)"):
+                    session.run("""
+                        MATCH (v:Variance {id: $from})
+                        MATCH (ef:EquipmentFailure {id: $to})
+                        CREATE (v)-[:HAS_FAILURE]->(ef)
+                    """, dict(row))
+            print(f"  [OK] HAS_FAILURE (Direct): {len(df)}개")
     
     def create_additional_relationships(self):
         """추가 관계 생성 (분석 최적화용)"""
         print("\n[4단계] 추가 관계 생성")
         
         with self.driver.session(database=self.database) as session:
-            # RELATED_TO_MATERIAL: Variance -> Material 관계
-            # (Variance가 어떤 자재와 관련있는지 직접 연결)
-            print("  - RELATED_TO_MATERIAL 관계 생성 중...")
-            result = session.run("""
-                MATCH (v:Variance)<-[:HAS_VARIANCE]-(po:ProductionOrder)-[:CONSUMES]->(m:Material)
-                WHERE v.cost_element = 'MATERIAL'
-                WITH v, m, COUNT(*) as strength
-                CREATE (v)-[:RELATED_TO_MATERIAL {strength: strength}]->(m)
-                RETURN COUNT(*) as count
-            """)
-            count = result.single()['count']
-            print(f"  [OK] RELATED_TO_MATERIAL: {count}개")
-            
             # NEXT_ORDER: 시계열 순서 관계
             print("  - NEXT_ORDER 관계 생성 중...")
             result = session.run("""
