@@ -1,6 +1,0 @@
-﻿cause_code,cause_category,variance_type,cause_description,responsible_dept,detail_description
-WAFER_CRACK,MATERIAL,DIFF,웨이퍼 크랙,품질팀,입고 웨이퍼 미세 크랙
-WIRE_BREAK,MATERIAL,DIFF,와이어 단선,생산팀,본딩 중 금선 끊어짐
-MOLD_VOID,QUALITY,DIFF,몰딩 기포(Void),기술팀,EMC 충진 불량으로 내부 기포 발생
-EPOXY_EXP,MATERIAL,DIFF,에폭시 유효기간 경과,자재팀,보관 기간 초과된 접착제 사용
-MC_ERROR_WB,OVERHEAD,DIFF,본더 설비 오작동,설비팀,Wire Bonder 좌표 인식 오류

@@ -1,7 +1,0 @@
-id,name,type,chemistry,capacity,standard_cost,active
-PKG-BGA-256,256-ball BGA Package,BGA,Gold,256.0,15000,True
-PKG-BGA-144,144-ball BGA Package,BGA,Gold,144.0,12000,True
-PKG-QFP-100,100-pin QFP Package,QFP,Copper,100.0,5000,True
-PKG-QFP-64,64-pin QFP Package,QFP,Copper,64.0,3500,True
-PKG-SOP-28,28-pin SOP Package,SOP,Copper,28.0,1200,True
-PKG-SOP-16,16-pin SOP Package,SOP,Copper,16.0,800,True

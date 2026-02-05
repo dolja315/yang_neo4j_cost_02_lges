@@ -182,6 +182,10 @@ def main():
         st.error(f"❌ 데이터 로드 실패: {e}")
         st.stop()
     
+    if summary['total_orders'] == 0:
+        st.warning("⚠️ 데이터가 없습니다. 먼저 데이터 생성 및 업로드를 진행해주세요.")
+        st.stop()
+
     # 요약 메트릭
     st.header("📊 전체 요약")
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -207,61 +211,67 @@ def main():
     with tab1:
         st.header("원인코드별 차이 분석")
         
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # 바 차트
-            fig = px.bar(
-                df_cause,
-                x='description',
-                y='total_variance',
-                color='total_variance',
-                color_continuous_scale=['green', 'yellow', 'red'],
-                text='total_variance',
-                title='원인코드별 원가차이'
-            )
-            fig.update_traces(texttemplate='%{text:,.0f}원', textposition='outside')
-            fig.update_layout(height=500, xaxis_tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # 테이블
-            st.subheader("상세 데이터")
-            df_display = df_cause.copy()
-            df_display['total_variance'] = df_display['total_variance'].apply(lambda x: f"{x:,.0f}원")
-            df_display['avg_percent'] = df_display['avg_percent'].apply(lambda x: f"{x:.2f}%")
-            st.dataframe(df_display, use_container_width=True)
+        if df_cause.empty:
+            st.info("데이터가 없습니다.")
+        else:
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                # 바 차트
+                fig = px.bar(
+                    df_cause,
+                    x='description',
+                    y='total_variance',
+                    color='total_variance',
+                    color_continuous_scale=['green', 'yellow', 'red'],
+                    text='total_variance',
+                    title='원인코드별 원가차이'
+                )
+                fig.update_traces(texttemplate='%{text:,.0f}원', textposition='outside')
+                fig.update_layout(height=500, xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                # 테이블
+                st.subheader("상세 데이터")
+                df_display = df_cause.copy()
+                df_display['total_variance'] = df_display['total_variance'].apply(lambda x: f"{x:,.0f}원")
+                df_display['avg_percent'] = df_display['avg_percent'].apply(lambda x: f"{x:.2f}%")
+                st.dataframe(df_display, use_container_width=True)
     
     with tab2:
         st.header("원가요소별 분석")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # 파이 차트
-            fig = px.pie(
-                df_element,
-                names='element',
-                values=df_element['total_variance'].abs(),
-                title='원가요소별 비중',
-                hole=0.4
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # 바 차트
-            fig = px.bar(
-                df_element,
-                x='element',
-                y='total_variance',
-                color='total_variance',
-                color_continuous_scale=['green', 'yellow', 'red'],
-                title='원가요소별 차이금액',
-                text='total_variance'
-            )
-            fig.update_traces(texttemplate='%{text:,.0f}원', textposition='outside')
-            st.plotly_chart(fig, use_container_width=True)
+        if df_element.empty:
+            st.info("데이터가 없습니다.")
+        else:
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # 파이 차트
+                fig = px.pie(
+                    df_element,
+                    names='element',
+                    values=df_element['total_variance'].abs(),
+                    title='원가요소별 비중',
+                    hole=0.4
+                )
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                # 바 차트
+                fig = px.bar(
+                    df_element,
+                    x='element',
+                    y='total_variance',
+                    color='total_variance',
+                    color_continuous_scale=['green', 'yellow', 'red'],
+                    title='원가요소별 차이금액',
+                    text='total_variance'
+                )
+                fig.update_traces(texttemplate='%{text:,.0f}원', textposition='outside')
+                st.plotly_chart(fig, use_container_width=True)
     
     with tab3:
         st.header("생산오더 분석")
@@ -269,59 +279,65 @@ def main():
         # TOP 20 오더
         st.subheader("TOP 20 차이가 큰 생산오더")
         
-        # 수평 바 차트
-        fig = px.bar(
-            df_orders,
-            y='order_id',
-            x='total_variance',
-            orientation='h',
-            color='total_variance',
-            color_continuous_scale=['green', 'yellow', 'red'],
-            hover_data=['product', 'quantity', 'variance_count'],
-            text='total_variance'
-        )
-        fig.update_traces(texttemplate='%{text:,.0f}원', textposition='outside')
-        fig.update_layout(height=700, yaxis={'categoryorder': 'total ascending'})
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # 상세 테이블
-        st.subheader("상세 정보")
-        df_display = df_orders.copy()
-        df_display['total_variance'] = df_display['total_variance'].apply(lambda x: f"{x:,.0f}원")
-        st.dataframe(df_display, use_container_width=True)
-    
-    with tab4:
-        st.header("작업장별 분석")
-        
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            # 바 차트
+        if df_orders.empty:
+            st.info("데이터가 없습니다.")
+        else:
+            # 수평 바 차트
             fig = px.bar(
-                df_wc,
-                x='workcenter',
-                y='total_variance',
+                df_orders,
+                y='order_id',
+                x='total_variance',
+                orientation='h',
                 color='total_variance',
                 color_continuous_scale=['green', 'yellow', 'red'],
-                hover_data=['type', 'count'],
-                title='작업장별 노무비/경비 차이',
+                hover_data=['product', 'quantity', 'variance_count'],
                 text='total_variance'
             )
             fig.update_traces(texttemplate='%{text:,.0f}원', textposition='outside')
-            fig.update_layout(height=500, xaxis_tickangle=-45)
+            fig.update_layout(height=700, yaxis={'categoryorder': 'total ascending'})
             st.plotly_chart(fig, use_container_width=True)
+
+            # 상세 테이블
+            st.subheader("상세 정보")
+            df_display = df_orders.copy()
+            df_display['total_variance'] = df_display['total_variance'].apply(lambda x: f"{x:,.0f}원")
+            st.dataframe(df_display, use_container_width=True)
+
+    with tab4:
+        st.header("작업장별 분석")
         
-        with col2:
-            st.subheader("요약")
-            st.metric("총 작업장", len(df_wc))
-            st.metric("평균 차이", f"{df_wc['total_variance'].mean():,.0f}원")
+        if df_wc.empty:
+            st.info("데이터가 없습니다.")
+        else:
+            col1, col2 = st.columns([3, 1])
             
-            # 최고/최저 효율 작업장
-            best = df_wc.loc[df_wc['total_variance'].idxmin()]
-            worst = df_wc.loc[df_wc['total_variance'].idxmax()]
+            with col1:
+                # 바 차트
+                fig = px.bar(
+                    df_wc,
+                    x='workcenter',
+                    y='total_variance',
+                    color='total_variance',
+                    color_continuous_scale=['green', 'yellow', 'red'],
+                    hover_data=['type', 'count'],
+                    title='작업장별 노무비/경비 차이',
+                    text='total_variance'
+                )
+                fig.update_traces(texttemplate='%{text:,.0f}원', textposition='outside')
+                fig.update_layout(height=500, xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
             
-            st.success(f"✅ 최고 효율\n{best['workcenter']}")
-            st.error(f"❌ 개선 필요\n{worst['workcenter']}")
+            with col2:
+                st.subheader("요약")
+                st.metric("총 작업장", len(df_wc))
+                st.metric("평균 차이", f"{df_wc['total_variance'].mean():,.0f}원")
+
+                # 최고/최저 효율 작업장
+                best = df_wc.loc[df_wc['total_variance'].idxmin()]
+                worst = df_wc.loc[df_wc['total_variance'].idxmax()]
+
+                st.success(f"✅ 최고 효율\n{best['workcenter']}")
+                st.error(f"❌ 개선 필요\n{worst['workcenter']}")
     
     # 푸터
     st.markdown("---")
