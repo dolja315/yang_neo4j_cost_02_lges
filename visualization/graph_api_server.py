@@ -1449,20 +1449,26 @@ def get_process_status():
     if not neo4j_conn.driver:
         return jsonify([])
 
-    with neo4j_conn.driver.session() as session:
-        query = """
-        MATCH (wc:WorkCenter)
-        OPTIONAL MATCH (wc)<-[:WORKS_AT]-(po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
-        WITH wc, collect(distinct v) as vars1
-        OPTIONAL MATCH (wc)<-[:OCCURRED_AT]-(v2:Variance)
-        WITH wc, vars1 + collect(distinct v2) as all_vars
-        UNWIND (CASE WHEN all_vars = [] THEN [null] ELSE all_vars END) as v
-        WITH wc, count(distinct v) as risk_level
-        RETURN wc.id as id, wc.name as label, risk_level
-        ORDER BY wc.id
-        """
-        results = session.run(query).data()
-        return jsonify(results)
+    try:
+        with neo4j_conn.driver.session() as session:
+            query = """
+            MATCH (wc:WorkCenter)
+            OPTIONAL MATCH (wc)<-[:WORKS_AT]-(po:ProductionOrder)-[:HAS_VARIANCE]->(v:Variance)
+            WITH wc, collect(distinct v) as vars1
+            OPTIONAL MATCH (wc)<-[:OCCURRED_AT]-(v2:Variance)
+            WITH wc, vars1, collect(distinct v2) as vars2
+            WITH wc, vars1 + vars2 as all_vars
+            UNWIND (CASE WHEN all_vars = [] THEN [null] ELSE all_vars END) as v
+            WITH wc, count(distinct v) as risk_level
+            RETURN wc.id as id, wc.name as label, risk_level
+            ORDER BY wc.id
+            """
+            results = session.run(query).data()
+            return jsonify(results)
+    except Exception as e:
+        print(f"Error in get_process_status: {e}")
+        # Return empty list to prevent frontend crash
+        return jsonify([])
 
 @app.route('/api/order-costs/<order_id>', methods=['GET'])
 def get_order_costs(order_id):
@@ -1470,35 +1476,39 @@ def get_order_costs(order_id):
     if not neo4j_conn.driver:
         return jsonify({'error': 'No DB connection'}), 500
 
-    with neo4j_conn.driver.session() as session:
-        # 1. Planned Cost 계산 (Product Standard Cost * Order Actual Qty)
-        # 2. Variance 조회
-        query = """
-        MATCH (po:ProductionOrder {id: $order_id})
-        OPTIONAL MATCH (po)-[:PRODUCES]->(p:Product)
-        OPTIONAL MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
-        WITH po, p, collect({element: v.cost_element, amount: v.variance_amount}) as variances
+    try:
+        with neo4j_conn.driver.session() as session:
+            # 1. Planned Cost 계산 (Product Standard Cost * Order Actual Qty)
+            # 2. Variance 조회
+            query = """
+            MATCH (po:ProductionOrder {id: $order_id})
+            OPTIONAL MATCH (po)-[:PRODUCES]->(p:Product)
+            OPTIONAL MATCH (po)-[:HAS_VARIANCE]->(v:Variance)
+            WITH po, p, collect({element: v.cost_element, amount: v.variance_amount}) as variances
 
-        RETURN
-            COALESCE(p.standard_cost, 0) * po.actual_qty as total_planned,
-            variances
-        """
-        result = session.run(query, order_id=order_id).single()
+            RETURN
+                COALESCE(p.standard_cost, 0) * po.actual_qty as total_planned,
+                variances
+            """
+            result = session.run(query, order_id=order_id).single()
 
-        if not result:
-            return jsonify({'error': 'Order not found'}), 404
+            if not result:
+                return jsonify({'error': 'Order not found'}), 404
 
-        total_planned = result['total_planned'] or 0
-        variances = [v for v in result['variances'] if v['amount'] is not None]
+            total_planned = result['total_planned'] or 0
+            variances = [v for v in result['variances'] if v['amount'] is not None]
 
-        total_variance = sum(v['amount'] for v in variances)
-        total_actual = total_planned + total_variance
+            total_variance = sum(v['amount'] for v in variances)
+            total_actual = total_planned + total_variance
 
-        return jsonify({
-            'total_planned': total_planned,
-            'total_actual': total_actual,
-            'variances': variances
-        })
+            return jsonify({
+                'total_planned': total_planned,
+                'total_actual': total_actual,
+                'variances': variances
+            })
+    except Exception as e:
+        print(f"Error in get_order_costs: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/graph-data', methods=['GET'])
 def get_graph_data():
@@ -1812,192 +1822,205 @@ def get_comparison_data():
 def get_cost_allocation_graph(workcenter_id):
     """Cost Allocation Visualization"""
 
-    with neo4j_conn.driver.session() as session:
-        query = """
-        MATCH (wc:WorkCenter {id: $wc_id})-[:INCURRED_COST]->(cp:CostPool)
-        OPTIONAL MATCH (cp)-[r:ALLOCATES]->(po:ProductionOrder)
+    try:
+        with neo4j_conn.driver.session() as session:
+            query = """
+            MATCH (wc:WorkCenter {id: $wc_id})-[:INCURRED_COST]->(cp:CostPool)
+            OPTIONAL MATCH (cp)-[r:ALLOCATES]->(po:ProductionOrder)
 
-        RETURN wc, cp, collect({rel: r, po: po}) as allocations
-        """
+            RETURN wc, cp, collect({rel: r, po: po}) as allocations
+            """
 
-        result = session.run(query, wc_id=workcenter_id).data()
+            result = session.run(query, wc_id=workcenter_id).data()
 
-        nodes = []
-        edges = []
-        seen_nodes = set()
+            nodes = []
+            edges = []
+            seen_nodes = set()
 
-        for row in result:
-            wc = row['wc']
-            cp = row['cp']
-            allocations = row['allocations']
+            for row in result:
+                wc = row['wc']
+                cp = row['cp']
+                allocations = row['allocations']
 
-            # WorkCenter Node
-            if wc and wc.element_id not in seen_nodes:
-                nodes.append({
-                    'id': wc.element_id,
-                    'label': wc['name'],
-                    'type': 'WorkCenter',
-                    'color': get_node_color('WorkCenter'),
-                    'size': 35,
-                    'properties': serialize_neo4j_types(dict(wc))
-                })
-                seen_nodes.add(wc.element_id)
+                # WorkCenter Node
+                if wc and wc.element_id not in seen_nodes:
+                    nodes.append({
+                        'id': wc.element_id,
+                        'label': wc['name'],
+                        'type': 'WorkCenter',
+                        'color': get_node_color('WorkCenter'),
+                        'size': 35,
+                        'properties': serialize_neo4j_types(dict(wc))
+                    })
+                    seen_nodes.add(wc.element_id)
 
-            # CostPool Node
-            if cp and cp.element_id not in seen_nodes:
-                nodes.append({
-                    'id': cp.element_id,
-                    'label': f"Pool {cp['month']}",
-                    'type': 'CostPool',
-                    'color': get_node_color('CostPool'),
-                    'size': 30,
-                    'properties': serialize_neo4j_types(dict(cp))
-                })
-                seen_nodes.add(cp.element_id)
-
-                # Edge WC -> CostPool
-                edges.append({
-                    'from': wc.element_id,
-                    'to': cp.element_id,
-                    'label': 'INCURRED_COST',
-                    'color': get_node_color('CostPool'),
-                    'arrows': 'to'
-                })
-
-            # ProductionOrder Nodes and Edges
-            for alloc in allocations:
-                if alloc['po']:
-                    po = alloc['po']
-                    r = alloc['rel']
-
-                    if po.element_id not in seen_nodes:
-                        nodes.append({
-                            'id': po.element_id,
-                            'label': po['id'],
-                            'type': 'ProductionOrder',
-                            'color': get_node_color('ProductionOrder'),
-                            'size': 25,
-                            'properties': serialize_neo4j_types(dict(po))
-                        })
-                        seen_nodes.add(po.element_id)
-
-                    # Edge CostPool -> PO
-                    edges.append({
-                        'from': cp.element_id,
-                        'to': po.element_id,
-                        'label': 'ALLOCATES',
+                # CostPool Node
+                if cp and cp.element_id not in seen_nodes:
+                    nodes.append({
+                        'id': cp.element_id,
+                        'label': f"Pool {cp['month']}",
+                        'type': 'CostPool',
                         'color': get_node_color('CostPool'),
-                        'arrows': 'to',
-                        'properties': serialize_neo4j_types(dict(r))
+                        'size': 30,
+                        'properties': serialize_neo4j_types(dict(cp))
+                    })
+                    seen_nodes.add(cp.element_id)
+
+                    # Edge WC -> CostPool
+                    edges.append({
+                        'from': wc.element_id,
+                        'to': cp.element_id,
+                        'label': 'INCURRED_COST',
+                        'color': get_node_color('CostPool'),
+                        'arrows': 'to'
                     })
 
-        return jsonify({
-            'nodes': nodes,
-            'edges': edges,
-            'center': workcenter_id
-        })
+                # ProductionOrder Nodes and Edges
+                for alloc in allocations:
+                    if alloc['po']:
+                        po = alloc['po']
+                        r = alloc['rel']
+
+                        if po.element_id not in seen_nodes:
+                            nodes.append({
+                                'id': po.element_id,
+                                'label': po['id'],
+                                'type': 'ProductionOrder',
+                                'color': get_node_color('ProductionOrder'),
+                                'size': 25,
+                                'properties': serialize_neo4j_types(dict(po))
+                            })
+                            seen_nodes.add(po.element_id)
+
+                        # Edge CostPool -> PO
+                        edges.append({
+                            'from': cp.element_id,
+                            'to': po.element_id,
+                            'label': 'ALLOCATES',
+                            'color': get_node_color('CostPool'),
+                            'arrows': 'to',
+                            'properties': serialize_neo4j_types(dict(r))
+                        })
+
+            return jsonify({
+                'nodes': nodes,
+                'edges': edges,
+                'center': workcenter_id
+            })
+    except Exception as e:
+        print(f"Error in get_cost_allocation_graph: {e}")
+        return jsonify({'nodes': [], 'edges': [], 'center': workcenter_id})
 
 
 @app.route('/api/analysis/comparison/mom/<product_id>', methods=['GET'])
 def get_mom_comparison(product_id):
     """Month-over-Month Comparison"""
 
-    with neo4j_conn.driver.session() as session:
-        query = """
-        MATCH (p:Product {id: $product_id})-[:HAS_MONTHLY_STATE]->(curr:MonthlyProductState)
-        OPTIONAL MATCH (prev:MonthlyProductState)-[:NEXT_MONTH]->(curr)
+    try:
+        with neo4j_conn.driver.session() as session:
+            query = """
+            MATCH (p:Product {id: $product_id})-[:HAS_MONTHLY_STATE]->(curr:MonthlyProductState)
+            OPTIONAL MATCH (prev:MonthlyProductState)-[:NEXT_MONTH]->(curr)
 
-        RETURN curr, prev
-        ORDER BY curr.month DESC
-        """
+            RETURN curr, prev
+            ORDER BY curr.month DESC
+            """
 
-        result = session.run(query, product_id=product_id).data()
+            result = session.run(query, product_id=product_id).data()
 
-        data = []
-        for row in result:
-            curr = row['curr']
-            prev = row['prev']
+            data = []
+            for row in result:
+                curr = row['curr']
+                prev = row['prev']
 
-            item = {
-                'month': curr['month'],
-                'current_cost': curr['actual_unit_cost'],
-                'total_yield': curr['total_yield']
-            }
+                item = {
+                    'month': curr['month'],
+                    'current_cost': curr['actual_unit_cost'],
+                    'total_yield': curr['total_yield']
+                }
 
-            if prev:
-                item['prev_cost'] = prev['actual_unit_cost']
-                item['change_amount'] = curr['actual_unit_cost'] - prev['actual_unit_cost']
-                if prev['actual_unit_cost'] > 0:
-                    item['change_percent'] = (item['change_amount'] / prev['actual_unit_cost']) * 100
+                if prev:
+                    item['prev_cost'] = prev['actual_unit_cost']
+                    item['change_amount'] = curr['actual_unit_cost'] - prev['actual_unit_cost']
+                    if prev['actual_unit_cost'] > 0:
+                        item['change_percent'] = (item['change_amount'] / prev['actual_unit_cost']) * 100
+                    else:
+                        item['change_percent'] = 0.0
                 else:
-                    item['change_percent'] = 0.0
-            else:
-                item['prev_cost'] = None
-                item['change_amount'] = None
-                item['change_percent'] = None
+                    item['prev_cost'] = None
+                    item['change_amount'] = None
+                    item['change_percent'] = None
 
-            data.append(item)
+                data.append(item)
 
-        return jsonify(data)
+            return jsonify(data)
+    except Exception as e:
+        print(f"Error in get_mom_comparison: {e}")
+        return jsonify([])
 
 
 @app.route('/api/analysis/root-cause/<variance_id>', methods=['GET'])
 def get_root_cause_graph(variance_id):
     """Root Cause Drill-down Visualization"""
 
-    with neo4j_conn.driver.session() as session:
-        # Note: The input variance_id might be just the numeric part or full ID.
-        # Assuming full ID or handling both could be robust, but strict match first.
-        # Path: Variance -> Symptom -> Factor -> Cause
-        query = """
-        MATCH path = (v:Variance {id: $variance_id})-[r1:LINKED_TO_SYMPTOM]->(s:Symptom)-[r2:CAUSED_BY_FACTOR]->(f:Factor)-[r3:TRACED_TO_ROOT]->(c:Cause)
-        RETURN path
-        """
+    try:
+        with neo4j_conn.driver.session() as session:
+            # Note: The input variance_id might be just the numeric part or full ID.
+            # Assuming full ID or handling both could be robust, but strict match first.
+            # Path: Variance -> Symptom -> Factor -> Cause
+            query = """
+            MATCH path = (v:Variance {id: $variance_id})-[r1:LINKED_TO_SYMPTOM]->(s:Symptom)-[r2:CAUSED_BY_FACTOR]->(f:Factor)-[r3:TRACED_TO_ROOT]->(c:Cause)
+            RETURN path
+            """
 
-        result = session.run(query, variance_id=variance_id).data()
+            result = session.run(query, variance_id=variance_id).data()
 
-        if not result:
-             # Try simpler path if full depth not found, or return just variance
-             return expand_node(variance_id) # Fallback to generic expand if custom path not found
+            if not result:
+                # Try simpler path if full depth not found, or return just variance
+                return expand_node(variance_id) # Fallback to generic expand if custom path not found
 
-        nodes = []
-        edges = []
-        seen_nodes = set()
+            nodes = []
+            edges = []
+            seen_nodes = set()
 
-        for row in result:
-            path = row['path']
-            # Path objects in neo4j driver are list of nodes and relationships
-            # But .data() returns graph objects.
-            # Using graph objects extraction
+            for row in result:
+                path = row['path']
+                # Path objects in neo4j driver are list of nodes and relationships
+                # But .data() returns graph objects.
+                # Using graph objects extraction
 
-            for node in path.nodes:
-                if node.element_id not in seen_nodes:
-                    node_type = list(node.labels)[0]
-                    nodes.append({
-                        'id': node.element_id,
-                        'label': node.get('name') or node.get('description') or node.get('id') or node.get('variance_name'),
-                        'type': node_type,
-                        'color': get_node_color(node_type),
-                        'size': 30 if node_type == 'Variance' else 25,
-                        'properties': serialize_neo4j_types(dict(node))
+                for node in path.nodes:
+                    if node.element_id not in seen_nodes:
+                        node_type = list(node.labels)[0]
+                        nodes.append({
+                            'id': node.element_id,
+                            'label': node.get('name') or node.get('description') or node.get('id') or node.get('variance_name'),
+                            'type': node_type,
+                            'color': get_node_color(node_type),
+                            'size': 30 if node_type == 'Variance' else 25,
+                            'properties': serialize_neo4j_types(dict(node))
+                        })
+                        seen_nodes.add(node.element_id)
+
+                for rel in path.relationships:
+                    edges.append({
+                        'from': rel.start_node.element_id,
+                        'to': rel.end_node.element_id,
+                        'label': type(rel).__name__,
+                        'color': '#7f8c8d',
+                        'arrows': 'to',
+                        'properties': serialize_neo4j_types(dict(rel))
                     })
-                    seen_nodes.add(node.element_id)
 
-            for rel in path.relationships:
-                edges.append({
-                    'from': rel.start_node.element_id,
-                    'to': rel.end_node.element_id,
-                    'label': type(rel).__name__,
-                    'color': '#7f8c8d',
-                    'arrows': 'to',
-                    'properties': serialize_neo4j_types(dict(rel))
-                })
-
-        return jsonify({
-            'nodes': nodes,
-            'edges': edges,
-            'center': variance_id
-        })
+            return jsonify({
+                'nodes': nodes,
+                'edges': edges,
+                'center': variance_id
+            })
+    except Exception as e:
+        print(f"Error in get_root_cause_graph: {e}")
+        # Fallback
+        return expand_node(variance_id)
 
 
 if __name__ == '__main__':

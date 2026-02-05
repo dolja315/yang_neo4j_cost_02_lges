@@ -9,18 +9,19 @@ python visualization/graph_api_server.py
 
 ### 2. 브라우저 접속
 ```
-http://localhost:5000
+http://localhost:8000
 ```
 
 ## 📁 핵심 파일
 
-### HTML 화면 (3개)
-- **`dashboard.html`** - 첫 화면 (대시보드 홈)
-- **`variance_graph_dashboard_v3.html`** - 상세 분석 (메인 그래프 화면)
+### HTML 화면
+- **`new_dashboard.html`** - **(New)** 통합 대시보드
+- **`dashboard.html`** - 기존 대시보드 홈
+- **`variance_graph_dashboard_v3.html`** - 상세 분석
 - **`comparison.html`** - 비교 분석
 
 ### 백엔드
-- **`visualization/graph_api_server.py`** - Flask API 서버
+- **`visualization/graph_api_server.py`** - Flask API 서버 (Port 8000)
 
 ## 🎯 주요 기능
 
@@ -75,5 +76,25 @@ Product (제품)
 - 드롭박스 방식 → **버튼 방식**으로 개선
 - 노드 수 제한으로 성능 최적화
 
+## 🌟 통합 대시보드 (new_dashboard.html)
+
+**주소:** `http://localhost:8000/`
+
+새로운 통합 대시보드는 3개의 탭으로 구성됩니다.
+
+### 1. 📊 Dashboard
+기존 `dashboard.html`을 통합하여 보여줍니다.
+
+### 2. 🔥 Process Monitoring
+- **Process Status Heatmap**: 공정별 위험도를 시각적으로 표시합니다.
+- **Drill-down**: 공정 박스를 클릭하면 우측 Drawer에서 세부 분석을 볼 수 있습니다.
+- **Cost Breakdown (Waterfall)**:
+    - 우측 Drawer에서 **생산오더를 선택**하여 계획 원가 대비 실제 원가 차이를 Waterfall 차트로 분석할 수 있습니다.
+    - 드롭다운 목록에서 상위 차이 발생 오더를 선택하세요.
+
+### 3. 🕸️ Graph Explorer
+- 전체 그래프를 탐색할 수 있는 전체 화면 모드입니다.
+- 검색 기능을 통해 특정 생산오더나 Variance ID를 찾을 수 있습니다.
+
 ---
-**마지막 업데이트**: 2026-02-03
+**마지막 업데이트**: 2026-02-05
