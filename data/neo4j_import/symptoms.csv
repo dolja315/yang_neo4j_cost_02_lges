@@ -1,0 +1,6 @@
+id,name,severity
+SYMP-001,Bonding Lift,HIGH
+SYMP-002,Wire Loop Height Error,MEDIUM
+SYMP-003,Molding Void,HIGH
+SYMP-004,Incomplete Fill,MEDIUM
+SYMP-005,Wafer Chipping,LOW
