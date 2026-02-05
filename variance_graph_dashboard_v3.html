@@ -508,7 +508,7 @@
     </div>
     
     <script>
-        const API_BASE = 'http://localhost:8000/api';
+        const API_BASE = (window.location.protocol === 'file:') ? 'http://localhost:8000/api' : '/api';
         let network;
         let nodes, edges;
         let currentFilters = { product: '', material: '', workcenter: '', period: '' };
