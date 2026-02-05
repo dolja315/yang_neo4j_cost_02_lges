@@ -4,6 +4,7 @@ FROM python:3.12-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
 
 # Set working directory
 WORKDIR /app
@@ -23,9 +24,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . .
 
-# Expose ports for Flask (8000) and Streamlit (8501)
-EXPOSE 8000
-EXPOSE 8501
+# Expose port (Cloud Run uses 8080 by default)
+EXPOSE 8080
 
 # Make the startup script executable
 RUN chmod +x run_services.sh
