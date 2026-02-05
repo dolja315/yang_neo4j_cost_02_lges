@@ -1,0 +1,2 @@
+id,workcenter_cd,cause_code,failure_type,failure_start,failure_end,downtime_hours,severity,description
+EF-001,WC-WB-01,MC_ERROR_WB,STOP,2024-02-01,2024-02-01,2.0,MEDIUM,Sensor Error

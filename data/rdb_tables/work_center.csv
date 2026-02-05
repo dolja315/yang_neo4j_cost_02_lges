@@ -1,0 +1,5 @@
+﻿workcenter_cd,workcenter_name,process_type,labor_rate_per_hour,overhead_rate_per_hour,capacity_per_hour,location,active_flag
+WC-DA-01,Die Attach Line,DIE_ATTACH,35000,70000,500,CleanRoom-A,Y
+WC-WB-01,Wire Bonding Line,WIRE_BOND,40000,80000,400,CleanRoom-A,Y
+WC-MD-01,Molding Line,MOLDING,38000,75000,300,CleanRoom-B,Y
+WC-MK-01,Marking & Singulation,MARKING,30000,60000,600,CleanRoom-B,Y

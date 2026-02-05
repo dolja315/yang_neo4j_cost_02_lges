@@ -1,0 +1,12 @@
+﻿cause_code,cause_category,variance_type,cause_description,responsible_dept,detail_description
+WAFER_CRACK,MATERIAL,DIFF,웨이퍼 크랙,품질팀,입고 웨이퍼 미세 크랙
+WIRE_BREAK,MATERIAL,DIFF,와이어 단선,생산팀,본딩 중 금선 끊어짐
+MOLD_VOID,QUALITY,DIFF,몰딩 기포(Void),기술팀,EMC 충진 불량으로 내부 기포 발생
+EPOXY_EXP,MATERIAL,DIFF,에폭시 유효기간 경과,자재팀,보관 기간 초과된 접착제 사용
+MC_ERROR_WB,OVERHEAD,DIFF,본더 설비 오작동,설비팀,Wire Bonder 좌표 인식 오류
+GOLD_PRICE_HIKE,MATERIAL,PRICE,금 가격 급등,구매팀,국제 금 시세 상승으로 인한 재료비 증가
+EPOXY_OVERUSE,MATERIAL,QTY,에폭시 과다 사용,생산팀,몰딩 공정 수지 주입량 조절 실패
+DIE_YIELD_LOW,MATERIAL,YIELD,다이 수율 저하,품질팀,웨이퍼 공정 불량으로 양품 다이 감소
+WORKER_INEFFICIENCY,LABOR,EFFICIENCY,작업 효율 저하,생산팀,신규 작업자 투입으로 숙련도 부족
+POWER_COST_HIKE,OVERHEAD,PRICE,전력비 급등,설비팀,전기요금 누진제 적용으로 경비 증가
+VOLUME_LOSS,OVERHEAD,VOLUME,조업도 손실,기획팀,수주 감소로 인한 설비 가동률 저하

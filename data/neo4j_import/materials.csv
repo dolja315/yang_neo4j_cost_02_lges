@@ -1,0 +1,7 @@
+id,name,type,unit,standard_price,supplier_cd,origin,active
+MAT-WAFER-01,Silicon Wafer 12inch,WAFER,EA,500000,SUP-WAF-KR,한국,True
+MAT-LF-QFP,Lead Frame for QFP,LEADFRAME,PNL,5000,SUP-LF-JP,일본,True
+MAT-SUB-BGA,PCB Substrate for BGA,SUBSTRATE,PNL,15000,SUP-SUB-KR,한국,True
+MAT-WIRE-AU,Gold Wire (99.99%),WIRE,M,200,SUP-WIR-DE,독일,True
+MAT-WIRE-CU,Copper Wire,WIRE,M,20,SUP-WIR-CN,중국,True
+MAT-EMC-01,Epoxy Molding Compound,EMC,KG,45000,SUP-EMC-JP,일본,True

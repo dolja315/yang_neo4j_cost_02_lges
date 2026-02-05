@@ -1,0 +1,2 @@
+id,defect_type,cause_code,material_name,defect_description,severity,detection_date,supplier_cd,detail
+QD-001,CRACK,WAFER_CRACK,Wafer,Edge Crack,HIGH,2024-01-15,SUP-WAF-KR,N/A
