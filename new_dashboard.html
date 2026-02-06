@@ -175,20 +175,19 @@
             if (currentFocusId) {
                 switchTab(3);
                 loadGraph(currentFocusId, 'mynetwork');
-                // closeAnalysisPanel(); // Optional: keep it open or close it
             }
         }
 
-        // --- Tab 2: Process Monitoring ---
+        // --- Tab 2: Process Monitoring (SK Hynix V2) ---
         async function loadProcessHeatmap() {
             const container = document.getElementById('process-flow');
             container.innerHTML = '<div class="spinner"></div>';
 
-            // Decoupled alerts loading
-            loadAlerts();
+            loadAlerts(); // Load alerts concurrently
 
             try {
-                const res = await fetch('/api/process-status');
+                // Use new SK Hynix endpoint
+                const res = await fetch('/api/skhynix/process-status');
                 if(!res.ok) throw new Error("Failed to fetch process status");
                 const data = await res.json();
 
@@ -197,53 +196,47 @@
                      return;
                 }
 
-                // Define Process Groups (Aggregation Logic)
-                const processGroups = [
-                    { id: 'DIE_ATTACH', label: 'Die Attach', pattern: /WC-DA/ },
-                    { id: 'WIRE_BOND', label: 'Wire Bond', pattern: /WC-WB/ },
-                    { id: 'MOLDING', label: 'Molding', pattern: /WC-MD/ },
-                    { id: 'MARKING', label: 'Marking', pattern: /WC-MK/ }
-                ];
-
                 let html = '';
+                // The data is a list of processes with risk levels
+                // We display them in a flow if possible, or grid
+                // Assuming simple grid for now as order isn't guaranteed in response (unless sorted)
 
-                processGroups.forEach(group => {
-                    // Aggregate risk from all matching WCs
-                    const matchingWCs = data.filter(d => group.pattern.test(d.id));
-                    const totalRisk = matchingWCs.reduce((sum, d) => sum + d.risk_level, 0);
+                // Sort by ID to approximate process order (VF-PHOTO -> ... -> VF-TEST)
+                // Or map specific IDs if order is critical.
 
-                    // Use the first matching WC ID for drilldown, or a representative one
-                    // Ideally drilldown should show all, but for now we pass the first found or a default
-                    const representativeId = matchingWCs.length > 0 ? matchingWCs[0].id : null;
-
+                data.forEach(p => {
                     let colorClass = 'bg-green-100 border-green-500 text-green-800';
                     let icon = '✅';
 
-                    if (totalRisk > 10) {
+                    if (p.risk_level >= 20) {
                         colorClass = 'bg-red-100 border-red-500 text-red-800';
                         icon = '🔥';
-                    } else if (totalRisk > 0) {
+                    } else if (p.risk_level > 0) {
                         colorClass = 'bg-yellow-100 border-yellow-500 text-yellow-800';
                         icon = '⚠️';
                     }
 
-                    const clickAction = representativeId ? `onclick="openProcessDrilldown('${representativeId}', '${group.label}')"` : '';
+                    // On click: Open Drilldown for this VF Area (latest state)
+                    const stateId = p.state_id; // e.g., STATE-VF-PHOTO-2025-06
+                    const clickAction = stateId ? `onclick="openProcessDrilldown('${p.id}', '${p.name}', '${stateId}')"` : '';
 
                     html += `
-                        <div class="process-box w-48 p-4 rounded-lg border-l-4 ${colorClass} bg-white shadow-sm relative z-10" ${clickAction}>
-                            <div class="text-xs font-bold uppercase tracking-wider mb-1 opacity-70">Step</div>
-                            <div class="font-bold text-lg mb-2">${group.label}</div>
+                        <div class="process-box w-48 p-4 rounded-lg border-l-4 ${colorClass} bg-white shadow-sm relative z-10 m-2" ${clickAction}>
+                            <div class="text-xs font-bold uppercase tracking-wider mb-1 opacity-70">${p.type}</div>
+                            <div class="font-bold text-lg mb-2 text-sm">${p.name}</div>
                             <div class="flex justify-between items-center">
                                 <span class="text-2xl">${icon}</span>
                                 <div class="text-right">
-                                    <div class="text-xs">Variances</div>
-                                    <div class="font-bold text-xl">${totalRisk}</div>
+                                    <div class="text-xs">Month</div>
+                                    <div class="font-bold text-sm">${p.month || '-'}</div>
                                 </div>
                             </div>
                         </div>
                     `;
                 });
-                container.innerHTML = html;
+
+                // Wrap in flex/grid
+                container.innerHTML = `<div class="flex flex-wrap justify-center">${html}</div>`;
 
             } catch (e) {
                 console.error(e);
@@ -255,26 +248,22 @@
             const container = document.getElementById('alerts-list');
 
             try {
-                const res = await fetch('/api/dashboard-data', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
-                });
+                const res = await fetch('/api/skhynix/alerts');
                 const data = await res.json();
 
-                if(!data.top_orders || data.top_orders.length === 0) {
+                if(!data || data.length === 0) {
                     container.innerHTML = '<div class="text-gray-400 text-sm p-4 text-center">No recent alerts found.</div>';
                     return;
                 }
 
-                const topOrders = data.top_orders.slice(0, 5);
-
-                container.innerHTML = topOrders.map(order => `
-                    <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded border-b cursor-pointer" onclick="openOrderDrilldown('${order.order_no}')">
+                container.innerHTML = data.map(item => `
+                    <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded border-b cursor-pointer" onclick="openOrderDrilldown('${item.state_id}')">
                         <div>
-                            <div class="font-bold text-indigo-600">${order.order_no}</div>
-                            <div class="text-xs text-gray-500">${order.product} | ${order.work_center}</div>
+                            <div class="font-bold text-indigo-600">${item.process_name}</div>
+                            <div class="text-xs text-gray-500">${item.month} | ${item.symptom}</div>
                         </div>
                         <div class="text-right">
-                            <div class="font-bold text-red-500">${new Intl.NumberFormat('ko-KR', {style:'currency', currency:'KRW'}).format(order.total_variance)}</div>
+                            <div class="font-bold text-red-500">${formatMoney(item.cost)}</div>
                         </div>
                     </div>
                 `).join('');
@@ -284,170 +273,142 @@
             }
         }
 
-        async function loadOrderSelect() {
-            try {
-                const res = await fetch('/api/dashboard-data', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
-                });
-                const data = await res.json();
-                const select = document.getElementById('orderSelect');
-                if(data.top_orders) {
-                    data.top_orders.forEach(o => {
-                        const opt = document.createElement('option');
-                        opt.value = o.order_no;
-                        opt.textContent = `${o.order_no} (${o.product}) - ${formatMoney(o.total_variance)}`;
-                        select.appendChild(opt);
-                    });
-                }
-            } catch(e) { console.error("Failed to load order select", e); }
-        }
-
         // --- Drill-down Panel ---
-        async function openProcessDrilldown(wcId, wcLabel) {
-            document.getElementById('analysis-title').textContent = `Analysis: ${wcLabel}`;
+        async function openProcessDrilldown(vfId, vfLabel, stateId) {
+            document.getElementById('analysis-title').textContent = `Analysis: ${vfLabel} (${stateId})`;
             const panel = document.getElementById('bottom-analysis-panel');
             panel.classList.remove('hidden');
-
-            // Scroll to panel
             panel.scrollIntoView({ behavior: 'smooth' });
 
-            // Show Cost Allocation Button for WorkCenters
-            const allocBtn = document.getElementById('btn-view-allocation');
-            allocBtn.classList.remove('hidden');
-            allocBtn.onclick = () => viewCostAllocation(wcId);
+            document.getElementById('btn-view-allocation').classList.add('hidden'); // Not used for now in this flow
 
-            // Clear waterfall
-            document.getElementById('waterfall-chart').innerHTML = '<div class="text-gray-400">Select an order from the list below to view costs</div>';
+            // Load Waterfall for the State
+            currentFocusId = stateId;
+            loadWaterfall(stateId);
 
-            // Load graph for WorkCenter
-            currentFocusId = wcId;
-            loadGraph(wcId, 'mini-network');
+            // Load Graph for the State
+            loadGraph(stateId, 'mini-network');
 
-            // Show list of orders in details
-            const detailsDiv = document.getElementById('analysis-details');
-            detailsDiv.innerHTML = '<div class="spinner"></div>';
-
-            try {
-                const res = await fetch('/api/dashboard-data', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ work_center: wcId })
-                });
-                const data = await res.json();
-
-                let html = '<ul class="space-y-2">';
-                if(data.top_orders) {
-                    data.top_orders.slice(0, 10).forEach(o => {
-                        html += `<li class="flex justify-between border-b pb-1 cursor-pointer hover:text-indigo-600" onclick="openOrderDrilldown('${o.order_no}')">
-                            <span>${o.order_no}</span>
-                            <span class="text-red-500">${new Intl.NumberFormat('ko-KR').format(o.total_variance)}</span>
-                        </li>`;
-                    });
-                } else {
-                    html += '<li>No high variance orders found.</li>';
-                }
-                html += '</ul>';
-                detailsDiv.innerHTML = html;
-            } catch(e) {
-                detailsDiv.innerHTML = 'Error loading details.';
-            }
+            document.getElementById('analysis-details').innerHTML = `Analyzing <b>${vfLabel}</b> for the month of <b>${stateId.split('-').slice(-2).join('-')}</b>.`;
         }
 
-        async function openOrderDrilldown(orderId) {
-            document.getElementById('analysis-title').textContent = `Order: ${orderId}`;
+        async function openOrderDrilldown(id) {
+            // "id" here is likely a MonthlyVFState ID or ProductionOrder ID
+            document.getElementById('analysis-title').textContent = `Drilldown: ${id}`;
             const panel = document.getElementById('bottom-analysis-panel');
             panel.classList.remove('hidden');
 
-            // Hide Alloc button for Orders (or could keep it if relevant, but typically WC level)
-            document.getElementById('btn-view-allocation').classList.add('hidden');
+            currentFocusId = id;
 
-            currentFocusId = orderId;
-
-            // Load Waterfall
-            loadWaterfall(orderId);
-
-            // Load Graph
-            loadGraph(orderId, 'mini-network');
-
-            document.getElementById('analysis-details').innerHTML = `Viewing details for Production Order <b>${orderId}</b>. Check the Waterfall chart for cost breakdown.`;
+            loadWaterfall(id);
+            loadGraph(id, 'mini-network');
         }
 
-        async function viewCostAllocation(wcId) {
-            if(!wcId) wcId = currentFocusId;
-            if(!wcId || !wcId.startsWith('WC')) return;
-
-            const container = document.getElementById('mini-network');
-            // Show loading
-            // Fetch special allocation graph
-             try {
-                const res = await fetch(`/api/analysis/cost-allocation/${wcId}`);
-                const data = await res.json();
-
-                if(data.nodes) {
-                    const nodes = new vis.DataSet(data.nodes);
-                    const edges = new vis.DataSet(data.edges);
-                    const options = {
-                        nodes: { shape: 'dot', font: { size: 12 } },
-                        edges: { arrows: 'to' },
-                        layout: { hierarchical: { direction: 'UD', sortMethod: 'directed' } } // Tree layout for allocation
-                    };
-                    miniNetworkInstance = new vis.Network(container, { nodes, edges }, options);
-                }
-            } catch(e) {
-                console.error(e);
-            }
-        }
-
-        async function loadWaterfall(orderId) {
+        async function loadWaterfall(nodeId) {
             const container = document.getElementById('waterfall-chart');
             container.innerHTML = '<div class="spinner"></div>';
 
             try {
-                const res = await fetch(`/api/order-costs/${orderId}`);
+                // If ID starts with STATE-, it's skhynix v2
+                let url = '';
+                let isV2 = false;
+                if(nodeId.startsWith('STATE-')) {
+                    url = `/api/skhynix/waterfall/${nodeId}`;
+                    isV2 = true;
+                } else {
+                    url = `/api/order-costs/${nodeId}`;
+                }
+
+                const res = await fetch(url);
                 if(!res.ok) throw new Error("Failed to load costs");
-                const data = await res.json(); // Expected: { planned: {MATERIAL:..., LABOR:...}, actual: {...}, variances: [{element:..., amount:...}] }
+                const data = await res.json();
 
-                // Prepare Plotly data
-                const x = [];
-                const y = [];
-                const measure = [];
-                const text = [];
+                let plotData = [];
 
-                // Base
-                x.push("Planned Cost");
-                y.push(data.total_planned);
-                measure.push("absolute");
-                text.push(formatMoney(data.total_planned));
+                if (isV2) {
+                    // { total: ..., breakdown: [{label, value}] }
+                    const x = [];
+                    const y = [];
+                    const measure = [];
+                    const text = [];
 
-                // Variances
-                data.variances.forEach(v => {
-                    x.push(v.element);
-                    y.push(v.amount);
-                    measure.push("relative");
-                    text.push((v.amount > 0 ? "+" : "") + formatMoney(v.amount));
-                });
+                    // Start from 0
+                    x.push("Baseline");
+                    y.push(0);
+                    measure.push("absolute");
+                    text.push("0");
 
-                // Final
-                x.push("Actual Cost");
-                y.push(data.total_actual);
-                measure.push("total");
-                text.push(formatMoney(data.total_actual));
+                    data.breakdown.forEach(item => {
+                        x.push(item.label);
+                        y.push(item.value);
+                        measure.push("relative");
+                        text.push("+" + formatMoney(item.value));
+                    });
 
-                const plotData = [{
-                    type: "waterfall",
-                    orientation: "v",
-                    measure: measure,
-                    x: x,
-                    textposition: "outside",
-                    text: text,
-                    y: y,
-                    connector: { line: { color: "rgb(63, 63, 63)" } },
-                    decreasing: { marker: { color: "#2ecc71" } },
-                    increasing: { marker: { color: "#e74c3c" } },
-                    totals: { marker: { color: "#3498db" } }
-                }];
+                    x.push("Total Cost");
+                    y.push(data.total);
+                    measure.push("total");
+                    text.push(formatMoney(data.total));
+
+                    plotData = [{
+                        type: "waterfall",
+                        orientation: "v",
+                        measure: measure,
+                        x: x,
+                        textposition: "outside",
+                        text: text,
+                        y: y,
+                        connector: { line: { color: "rgb(63, 63, 63)" } },
+                        decreasing: { marker: { color: "#2ecc71" } },
+                        increasing: { marker: { color: "#e74c3c" } },
+                        totals: { marker: { color: "#3498db" } }
+                    }];
+
+                } else {
+                    // Legacy format
+                     // Prepare Plotly data
+                    const x = [];
+                    const y = [];
+                    const measure = [];
+                    const text = [];
+
+                    // Base
+                    x.push("Planned Cost");
+                    y.push(data.total_planned);
+                    measure.push("absolute");
+                    text.push(formatMoney(data.total_planned));
+
+                    // Variances
+                    data.variances.forEach(v => {
+                        x.push(v.element);
+                        y.push(v.amount);
+                        measure.push("relative");
+                        text.push((v.amount > 0 ? "+" : "") + formatMoney(v.amount));
+                    });
+
+                    // Final
+                    x.push("Actual Cost");
+                    y.push(data.total_actual);
+                    measure.push("total");
+                    text.push(formatMoney(data.total_actual));
+
+                    plotData = [{
+                        type: "waterfall",
+                        orientation: "v",
+                        measure: measure,
+                        x: x,
+                        textposition: "outside",
+                        text: text,
+                        y: y,
+                        connector: { line: { color: "rgb(63, 63, 63)" } },
+                        decreasing: { marker: { color: "#2ecc71" } },
+                        increasing: { marker: { color: "#e74c3c" } },
+                        totals: { marker: { color: "#3498db" } }
+                    }];
+                }
 
                 const layout = {
-                    title: { text: "Cost Variance Waterfall" },
+                    title: { text: "Cost Breakdown" },
                     waterfallgap: 0.3,
                     margin: { t: 50, b: 50, l: 50, r: 50 },
                     height: 250
@@ -474,9 +435,13 @@
                 else if(rootId.startsWith('MAT')) type = 'material';
                 else if(rootId.startsWith('VAR')) type = 'variance';
                 else if(rootId.startsWith('PKG')) type = 'product';
+                else if(rootId.startsWith('VF-')) type = 'node'; // Generic expand
+                else if(rootId.startsWith('STATE-')) type = 'node'; // Generic expand
+                else if(rootId.startsWith('EVT-')) type = 'node'; // Generic expand
 
                 let endpoint = `/api/${type}/${rootId}/graph`;
                 if (type === 'variance') endpoint = `/api/variance/${rootId}/graph`;
+                if (type === 'node') endpoint = `/api/node/${rootId}/expand`;
 
                 const res = await fetch(endpoint);
                 if(!res.ok) throw new Error("API Error: " + res.statusText);
@@ -484,7 +449,9 @@
 
                 if(data.error) throw new Error(data.error);
                 if(!data.nodes || !Array.isArray(data.nodes)) {
-                     throw new Error("Invalid graph data format (nodes missing)");
+                     // Sometimes expand returns empty if node not found
+                     if (type === 'node' && data.nodes.length === 0) throw new Error("Node not found or no connections");
+                     else throw new Error("Invalid graph data format");
                 }
 
                 const nodes = new vis.DataSet(data.nodes);
@@ -543,6 +510,11 @@
             }
         }
 
+        function loadOrderSelect() {
+            // Deprecated/Hidden for now in V2 or needs update
+            // Keeping empty to avoid errors
+        }
+
         // --- Utils ---
         function formatMoney(amount) {
             return new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(amount);
@@ -550,7 +522,7 @@
 
         // Init
         document.addEventListener('DOMContentLoaded', () => {
-            loadOrderSelect();
+             // Default init
         });
 
     </script>

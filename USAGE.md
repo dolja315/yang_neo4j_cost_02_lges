@@ -96,5 +96,25 @@ Product (제품)
 - 전체 그래프를 탐색할 수 있는 전체 화면 모드입니다.
 - 검색 기능을 통해 특정 생산오더나 Variance ID를 찾을 수 있습니다.
 
+## 💾 SK Hynix V2 Data Generation
+
+새로운 데이터셋(V2)을 생성하고 로드하려면 다음 단계를 따르십시오.
+
+### 1. 데이터 생성
+```bash
+python generate_data_skhynix_v2.py
+```
+이 스크립트는 `data/neo4j_import/` 디렉토리에 CSV 파일들을 생성합니다. (Master Data, Transaction Data, Relationships)
+
+### 2. Neo4j 데이터 로드
+```bash
+python upload_skhynix_v2.py
+```
+이 스크립트는 기존 데이터를 삭제하고, 생성된 CSV 파일을 Neo4j 데이터베이스에 로드합니다.
+**.env 파일 설정이 필요합니다.** (NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD)
+
+### 3. 대시보드 확인
+서버를 재시작한 후 `http://localhost:8000/`에서 'Process Monitoring' 탭을 확인하십시오.
+
 ---
 **마지막 업데이트**: 2026-02-05
