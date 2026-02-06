@@ -111,6 +111,7 @@ python generate_data_skhynix_v2.py
 python upload_skhynix_v2.py
 ```
 이 스크립트는 기존 데이터를 삭제하고, 생성된 CSV 파일을 Neo4j 데이터베이스에 로드합니다.
+이 스크립트는 Python Driver를 사용하여 CSV를 직접 읽어 로드하므로, Neo4j 서버의 파일 접근 제한(LOAD CSV)을 우회할 수 있습니다.
 **.env 파일 설정이 필요합니다.** (NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD)
 
 ### 3. 대시보드 확인
