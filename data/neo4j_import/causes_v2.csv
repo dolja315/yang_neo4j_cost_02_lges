@@ -1,0 +1,5 @@
+id,name,category
+CAUSE-SUP-QUAL,Supplier Quality Issue,External
+CAUSE-PM-SKIP,Preventive Maint Skipped,Internal
+CAUSE-HVAC-FAIL,Clean Room HVAC Fail,Facility
+CAUSE-SOP-VIO,SOP Violation,Internal

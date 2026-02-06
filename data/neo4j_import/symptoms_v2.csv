@@ -1,2 +1,5 @@
 id,name
 SYMP-VOID,Micro Voids
+SYMP-CRACK,Wafer Crack
+SYMP-DIM,Dimension Error
+SYMP-ELEC,Electrical Fail

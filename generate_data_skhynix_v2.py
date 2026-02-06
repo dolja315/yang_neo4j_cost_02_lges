@@ -27,7 +27,7 @@ def generate_master_data():
         {'id': 'FAC-M16', 'name': 'M16 Plant (Icheon)', 'type': 'Fab', 'company_id': 'SK-HYNIX'},
         {'id': 'FAC-M15', 'name': 'M15 Plant (Cheongju)', 'type': 'Fab', 'company_id': 'SK-HYNIX'}
     ]
-    areas = [{'id': 'AREA-FAB-CLEAN', 'name': 'Clean Room Zone', 'factory_id': 'FAC-M16'}] # Simplified assignment
+    areas = [{'id': 'AREA-FAB-CLEAN', 'name': 'Clean Room Zone', 'factory_id': 'FAC-M16'}]
 
     # VFAreas (Process Steps)
     vf_areas = [
@@ -35,10 +35,15 @@ def generate_master_data():
         {'id': 'VF-PHOTO', 'name': 'Photolithography', 'type': 'Wafer Fab', 'area_id': 'AREA-FAB-CLEAN'},
         {'id': 'VF-ETCH', 'name': 'Etching', 'type': 'Wafer Fab', 'area_id': 'AREA-FAB-CLEAN'},
         {'id': 'VF-DEPO', 'name': 'Deposition', 'type': 'Wafer Fab', 'area_id': 'AREA-FAB-CLEAN'},
+        {'id': 'VF-CMP', 'name': 'CMP', 'type': 'Wafer Fab', 'area_id': 'AREA-FAB-CLEAN'},
+        {'id': 'VF-DIFF', 'name': 'Diffusion', 'type': 'Wafer Fab', 'area_id': 'AREA-FAB-CLEAN'},
+        {'id': 'VF-IMP', 'name': 'Ion Implantation', 'type': 'Wafer Fab', 'area_id': 'AREA-FAB-CLEAN'},
         # Packaging
         {'id': 'VF-TSV', 'name': 'Through Silicon Via', 'type': 'Packaging', 'area_id': 'AREA-FAB-CLEAN'},
         {'id': 'VF-MR-MUF', 'name': 'MR-MUF Reflow', 'type': 'Packaging', 'area_id': 'AREA-FAB-CLEAN'},
-        {'id': 'VF-TEST-PKG', 'name': 'Final Test', 'type': 'Packaging', 'area_id': 'AREA-FAB-CLEAN'}
+        {'id': 'VF-TEST-PKG', 'name': 'Final Test', 'type': 'Packaging', 'area_id': 'AREA-FAB-CLEAN'},
+        {'id': 'VF-BOND', 'name': 'Wire Bonding', 'type': 'Packaging', 'area_id': 'AREA-FAB-CLEAN'},
+        {'id': 'VF-MARK', 'name': 'Laser Marking', 'type': 'Packaging', 'area_id': 'AREA-FAB-CLEAN'}
     ]
 
     # Products
@@ -46,11 +51,23 @@ def generate_master_data():
         {'id': 'FAM-DRAM', 'name': 'DRAM'},
         {'id': 'FAM-NAND', 'name': 'NAND Flash'}
     ]
+
+    # Core Products (for Scenarios)
     products = [
         {'id': 'PROD-HBM3E', 'name': 'HBM3E 8-Hi', 'family_id': 'FAM-DRAM'},
         {'id': 'PROD-DDR5', 'name': 'DDR5 32GB', 'family_id': 'FAM-DRAM'},
         {'id': 'PROD-NAND-238L', 'name': '238-Layer 4D NAND', 'family_id': 'FAM-NAND'}
     ]
+
+    # Synthetic Products (Volume)
+    for i in range(1, 21):
+        fam = 'FAM-DRAM' if i % 2 == 0 else 'FAM-NAND'
+        ptype = 'DDR4' if fam == 'FAM-DRAM' else 'V-NAND'
+        products.append({
+            'id': f'PROD-{ptype}-V{i:02d}',
+            'name': f'{ptype} Variant {i:02d}',
+            'family_id': fam
+        })
 
     # Cost Hierarchy
     accounts = [
@@ -71,9 +88,39 @@ def generate_master_data():
         {'id': 'ITEM-HBM-BASE', 'name': 'Base Die', 'unit': 'EA', 'sub_account_id': 'SUB-WAFER', 'base_price': 50}
     ]
 
-    # Symptoms & Factors
-    symptoms = [{'id': 'SYMP-VOID', 'name': 'Micro Voids'}]
-    factors = [{'id': 'FACT-MAT-BATCH', 'name': 'Bad Batch Issue', 'type': 'Material'}]
+    # Synthetic Items
+    for i in range(1, 21):
+        cat = random.choice(['SUB-WAFER', 'SUB-CHEM', 'SUB-PKG-MAT'])
+        base = random.randint(10, 500)
+        items.append({
+            'id': f'ITEM-GENERIC-{i:02d}',
+            'name': f'Generic Material {i:02d}',
+            'unit': 'KG',
+            'sub_account_id': cat,
+            'base_price': base
+        })
+
+    # Root Cause Analysis Master Data (Symptoms, Factors, Causes)
+    symptoms = [
+        {'id': 'SYMP-VOID', 'name': 'Micro Voids'},
+        {'id': 'SYMP-CRACK', 'name': 'Wafer Crack'},
+        {'id': 'SYMP-DIM', 'name': 'Dimension Error'},
+        {'id': 'SYMP-ELEC', 'name': 'Electrical Fail'}
+    ]
+
+    factors = [
+        {'id': 'FACT-MAT-BATCH', 'name': 'Bad Batch Issue', 'type': 'Material'},
+        {'id': 'FACT-EQP-CAL', 'name': 'Calibration Drift', 'type': 'Machine'},
+        {'id': 'FACT-ENV-HUM', 'name': 'Humidity Spike', 'type': 'Environment'},
+        {'id': 'FACT-OP-ERR', 'name': 'Operator Miss', 'type': 'Man'}
+    ]
+
+    causes = [
+        {'id': 'CAUSE-SUP-QUAL', 'name': 'Supplier Quality Issue', 'category': 'External'},
+        {'id': 'CAUSE-PM-SKIP', 'name': 'Preventive Maint Skipped', 'category': 'Internal'},
+        {'id': 'CAUSE-HVAC-FAIL', 'name': 'Clean Room HVAC Fail', 'category': 'Facility'},
+        {'id': 'CAUSE-SOP-VIO', 'name': 'SOP Violation', 'category': 'Internal'}
+    ]
 
     return {
         'companies': pd.DataFrame(companies),
@@ -86,7 +133,8 @@ def generate_master_data():
         'sub_accounts': pd.DataFrame(sub_accounts),
         'items': pd.DataFrame(items),
         'symptoms': pd.DataFrame(symptoms),
-        'factors': pd.DataFrame(factors)
+        'factors': pd.DataFrame(factors),
+        'causes': pd.DataFrame(causes)
     }
 
 # ==========================================
@@ -103,7 +151,11 @@ def generate_transactions(master_data):
     rel_next_vf = []
     rel_next_prod = []
     rel_has_symptom = []
+
+    # Static Relationships (Master Data)
     rel_caused_by = [] # Symptom -> Factor
+    rel_traced_to = [] # Factor -> Cause
+
     rel_impacts = []   # Event -> Item/VF
 
     external_events = []
@@ -112,27 +164,47 @@ def generate_transactions(master_data):
     vf_df = master_data['vf_areas']
     prod_df = master_data['products']
     items_df = master_data['items']
+    symptoms_df = master_data['symptoms']
+    factors_df = master_data['factors']
+
+    all_vf_ids = vf_df['id'].tolist()
+    all_item_ids = items_df['id'].tolist()
 
     # --- Configuration per Product ---
-    # Simplified BOM/Routing simulation
-    # Product -> [VF Steps]
-    # Each VF Step uses certain Items
 
+    # 1. Defined Routes for Core Products
     prod_routing = {
         'PROD-HBM3E': ['VF-PHOTO', 'VF-ETCH', 'VF-TSV', 'VF-MR-MUF', 'VF-TEST-PKG'],
         'PROD-DDR5': ['VF-PHOTO', 'VF-ETCH', 'VF-DEPO', 'VF-TEST-PKG'],
         'PROD-NAND-238L': ['VF-PHOTO', 'VF-ETCH', 'VF-DEPO', 'VF-TEST-PKG']
     }
 
+    # 2. Random Routes for Synthetic Products
+    for pid in prod_df['id']:
+        if pid not in prod_routing:
+            # Pick 3-5 random steps
+            steps = random.sample(all_vf_ids, k=random.randint(3, 5))
+            prod_routing[pid] = steps
+
     # VF -> Items (Base Usage)
     vf_item_usage = {
-        'VF-PHOTO': {'ITEM-PR-EUV': 0.005}, # 0.005 L per unit
-        'VF-ETCH': {'ITEM-WAFER-12': 0.001}, # Fractional wafer per unit? Simplification: Consume wafer at first step or spread. Let's put Wafer at Etch for simplicity of cost flow.
+        'VF-PHOTO': {'ITEM-PR-EUV': 0.005},
+        'VF-ETCH': {'ITEM-WAFER-12': 0.001},
         'VF-TSV': {'ITEM-HBM-BASE': 1.0},
         'VF-MR-MUF': {'ITEM-LMC-H': 0.02},
-        'VF-DEPO': {},
-        'VF-TEST-PKG': {}
     }
+
+    # Fill gaps with random generic items
+    for vf in all_vf_ids:
+        if vf not in vf_item_usage:
+            vf_item_usage[vf] = {}
+        # Add some generic items to all steps to increase density
+        num_items = random.randint(1, 3)
+        generic_candidates = [i for i in all_item_ids if 'GENERIC' in i]
+        if generic_candidates:
+            selected = random.sample(generic_candidates, k=min(len(generic_candidates), num_items))
+            for item in selected:
+                vf_item_usage[vf][item] = random.uniform(0.01, 0.5)
 
     # Initial Volumes
     base_volumes = {
@@ -140,6 +212,10 @@ def generate_transactions(master_data):
         'PROD-DDR5': 20000,
         'PROD-NAND-238L': 15000
     }
+    # Random volumes for others
+    for pid in prod_df['id']:
+        if pid not in base_volumes:
+            base_volumes[pid] = random.randint(1000, 8000)
 
     prev_vf_states = {}   # Key: vf_id, Value: state_id
     prev_prod_states = {} # Key: prod_id, Value: state_id
@@ -150,7 +226,6 @@ def generate_transactions(master_data):
         # --- Scenarios Trigger Check ---
 
         # Scenario A: Material Cost Spike (June 2025)
-        # Event: Global Neon Gas Shortage -> Impacts ITEM-PR-EUV price
         item_price_multiplier = {item: 1.0 for item in items_df['id']}
 
         if month == '2025-06':
@@ -161,13 +236,10 @@ def generate_transactions(master_data):
                 'description': 'Supply chain disruption causing PR price hike.',
                 'category': 'Market'
             })
-            # Impact Relationship
             rel_impacts.append({'from': evt_id, 'to': 'ITEM-PR-EUV'})
             item_price_multiplier['ITEM-PR-EUV'] = 1.25 # 25% increase
 
         # Scenario B: HBM Yield Drop (Sept 2025)
-        # Event: Clean Room Contamination
-        hbm_yield_mult = 1.0
         if month == '2025-09':
             evt_id = f"EVT-{month}-OPS"
             external_events.append({
@@ -177,10 +249,8 @@ def generate_transactions(master_data):
                 'category': 'Operations'
             })
             rel_impacts.append({'from': evt_id, 'to': 'VF-MR-MUF'})
-            hbm_yield_mult = 0.925 # Drops to ~92% (Base is usually high)
 
         # Scenario C: Volume Ramp-up (Nov 2025 - Jan 2026)
-        # Event: AI Server Demand Surge
         if month == '2025-11':
             evt_id = f"EVT-{month}-SALES"
             external_events.append({
@@ -189,19 +259,13 @@ def generate_transactions(master_data):
                 'description': 'Strategic ramp-up for HBM3E.',
                 'category': 'Sales'
             })
-            # Impact on HBM Product (conceptual, maybe link to Product?)
-            # For schema strictness, let's link to VFArea or Item. Or just keep event.
-            pass
 
         # Apply Volume Ramp
         current_volumes = base_volumes.copy()
         if month >= '2025-11':
-            current_volumes['PROD-HBM3E'] = int(current_volumes['PROD-HBM3E'] * 1.4) # 40% increase
+            current_volumes['PROD-HBM3E'] = int(current_volumes['PROD-HBM3E'] * 1.4)
 
         # --- Generate Data ---
-
-        # 1. Calculate Product-Process Intersections first to aggregate VF totals
-        # We need to know how much each product consumes of each VF to build VF states
 
         # Structure: vf_id -> { total_input, total_output, cost_contributors: [], allocations: [] }
         vf_month_data = {vf: {'input': 0, 'output': 0, 'items': {}, 'prod_allocs': []} for vf in vf_df['id']}
@@ -209,7 +273,7 @@ def generate_transactions(master_data):
         for prod_id, route in prod_routing.items():
             vol = current_volumes[prod_id]
             # Random fluctuation
-            vol = int(vol * np.random.uniform(0.98, 1.02))
+            vol = int(vol * np.random.uniform(0.95, 1.05))
 
             for vf_id in route:
                 # Determine Yield
@@ -244,23 +308,21 @@ def generate_transactions(master_data):
 
                     step_mat_cost += total_item_cost
 
-                # Add Overhead (Simplified: fixed rate per unit)
-                overhead_rate = 10 # dummy
+                # Add Overhead
+                overhead_rate = 10
                 step_overhead = input_qty * overhead_rate
 
-                # We will register the allocation logic here
-                # But we need the VF State ID first.
                 vf_month_data[vf_id]['prod_allocs'].append({
                     'prod_id': prod_id,
                     'mat_cost': step_mat_cost,
                     'overhead_cost': step_overhead,
-                    'output_qty': output_qty // len(route) # Rough attribution for "Product State" volume?
-                    # Actually MonthlyProductState is usually finished goods or WIP.
-                    # Let's say MonthlyProductState represents the Finished Good status for that month.
+                    'output_qty': output_qty
                 })
 
         # 2. Create MonthlyVFState Nodes
         for vf_id, data in vf_month_data.items():
+            if data['input'] == 0: continue # Skip unused VFs for this month
+
             state_id = f"STATE-{vf_id}-{month}"
 
             total_mat_cost = sum(i['amount'] for i in data['items'].values())
@@ -288,13 +350,15 @@ def generate_transactions(master_data):
                     'qty': round(item_data['qty'], 2)
                 })
 
-            # Scenario B: Symptom Link
+            # Scenario B: Symptom Link (Core)
             if vf_id == 'VF-MR-MUF' and month == '2025-09':
                 rel_has_symptom.append({'from': state_id, 'to': 'SYMP-VOID'})
-                # Ensure Factor link exists (static, but good to double check or re-emit if needed)
-                # We do static generation for Symptoms/Factors, but relationships might be needed.
-                # Actually, schema says (:Symptom)-[:CAUSED_BY]->(:Factor). This is static master data rel.
-                # But (:MonthlyVFState)-[:HAS_SYMPTOM]->(:Symptom) is dynamic.
+
+            # Random "Noise" Symptoms for Synthetic Data
+            # Low probability of random issue
+            elif random.random() < 0.05:
+                random_sym = random.choice(symptoms_df['id'].tolist())
+                rel_has_symptom.append({'from': state_id, 'to': random_sym})
 
             # Relations: NEXT_MONTH
             if vf_id in prev_vf_states:
@@ -303,12 +367,13 @@ def generate_transactions(master_data):
 
 
         # 3. Create MonthlyProductState Nodes
-        # Aggregate costs from VFs to Products
 
         prod_month_data = {p: {'cost': 0, 'volume': 0} for p in prod_df['id']}
 
         # Allocations from VF States
         for vf_id, data in vf_month_data.items():
+            if data['input'] == 0: continue
+
             vf_state_id = f"STATE-{vf_id}-{month}"
 
             total_vf_cost = sum(a['mat_cost'] + a['overhead_cost'] for a in data['prod_allocs'])
@@ -323,19 +388,11 @@ def generate_transactions(master_data):
                 # Prod State Accumulation
                 prod_month_data[p_id]['cost'] += cost_share
 
-                # Volume: We use the volume of the FINAL step as the Product Volume
-                # Check if this VF is the last step for this product
+                # Volume: Use volume of the LAST step
                 if vf_id == prod_routing[p_id][-1]:
-                    prod_month_data[p_id]['volume'] = alloc['output_qty'] # Actually stored in 'output' of VF logic above?
-                    # Re-logic: alloc['output_qty'] in my loop was just output of that step.
-                    # Yes, if it is last step, it is finished good volume.
-                    # Wait, in the loop above `vf_month_data[vf_id]['output']` is total output of VF.
-                    # `alloc` logic didn't explicitly store specific output per product, but let's assume `output_qty` derived from input `vol` is correct.
-                    # Yes `input_qty = vol` (where vol is per product).
-                    prod_month_data[p_id]['volume'] = int(vol * (0.99 if month != '2025-09' else 0.92)) # Approximation for now to match logic
+                    prod_month_data[p_id]['volume'] = alloc['output_qty']
 
                 # Create Relationship: VFState -> ProdState
-                # We need ProdState ID.
                 prod_state_id = f"STATE-{p_id}-{month}"
                 rel_allocates.append({
                     'from': vf_state_id,
@@ -345,6 +402,9 @@ def generate_transactions(master_data):
                 })
 
         for p_id, data in prod_month_data.items():
+            # Only create state if there was volume
+            if data['volume'] == 0 and data['cost'] == 0: continue
+
             state_id = f"STATE-{p_id}-{month}"
             vol = data['volume']
             total_cost = data['cost']
@@ -364,8 +424,23 @@ def generate_transactions(master_data):
                 rel_next_prod.append({'from': prev_prod_states[p_id], 'to': state_id})
             prev_prod_states[p_id] = state_id
 
-    # Symptom -> Factor (Static)
-    rel_caused_by.append({'from': 'SYMP-VOID', 'to': 'FACT-MAT-BATCH'})
+    # Master Data Relationships: Symptom -> Factor -> Cause
+    # Define mappings
+    # SYMP-VOID -> FACT-MAT-BATCH -> CAUSE-SUP-QUAL
+    # SYMP-CRACK -> FACT-EQP-CAL -> CAUSE-PM-SKIP
+    # SYMP-DIM -> FACT-OP-ERR -> CAUSE-SOP-VIO
+    # SYMP-ELEC -> FACT-ENV-HUM -> CAUSE-HVAC-FAIL
+
+    rca_mappings = [
+        ('SYMP-VOID', 'FACT-MAT-BATCH', 'CAUSE-SUP-QUAL'),
+        ('SYMP-CRACK', 'FACT-EQP-CAL', 'CAUSE-PM-SKIP'),
+        ('SYMP-DIM', 'FACT-OP-ERR', 'CAUSE-SOP-VIO'),
+        ('SYMP-ELEC', 'FACT-ENV-HUM', 'CAUSE-HVAC-FAIL')
+    ]
+
+    for sym, fact, cause in rca_mappings:
+        rel_caused_by.append({'from': sym, 'to': fact})
+        rel_traced_to.append({'from': fact, 'to': cause})
 
     return {
         'vf_states': pd.DataFrame(vf_states),
@@ -377,6 +452,7 @@ def generate_transactions(master_data):
         'rel_next_prod': pd.DataFrame(rel_next_prod),
         'rel_has_symptom': pd.DataFrame(rel_has_symptom),
         'rel_caused_by': pd.DataFrame(rel_caused_by),
+        'rel_traced_to': pd.DataFrame(rel_traced_to),
         'rel_impacts': pd.DataFrame(rel_impacts)
     }
 
@@ -404,6 +480,7 @@ def main():
     master['items'].to_csv(f'{NEO4J_DIR}/material_items.csv', index=False)
     master['symptoms'].to_csv(f'{NEO4J_DIR}/symptoms_v2.csv', index=False)
     master['factors'].to_csv(f'{NEO4J_DIR}/factors_v2.csv', index=False)
+    master['causes'].to_csv(f'{NEO4J_DIR}/causes_v2.csv', index=False)
 
     # Export Transactions
     trans['vf_states'].to_csv(f'{NEO4J_DIR}/monthly_vf_states.csv', index=False)
@@ -417,33 +494,24 @@ def main():
     trans['rel_next_prod'].to_csv(f'{NEO4J_DIR}/rel_next_prod.csv', index=False)
     trans['rel_has_symptom'].to_csv(f'{NEO4J_DIR}/rel_has_symptom.csv', index=False)
     trans['rel_caused_by'].to_csv(f'{NEO4J_DIR}/rel_caused_by_v2.csv', index=False)
+    trans['rel_traced_to'].to_csv(f'{NEO4J_DIR}/rel_traced_to_root.csv', index=False)
     trans['rel_impacts'].to_csv(f'{NEO4J_DIR}/rel_impacts.csv', index=False)
 
     # Helper Relationships for Hierarchy
-    # Company -> Factory
     pd.DataFrame({'from': 'SK-HYNIX', 'to': ['FAC-M16', 'FAC-M15']}).explode('to').to_csv(f'{NEO4J_DIR}/rel_has_factory.csv', index=False)
-    # Factory -> Area
     pd.DataFrame({'from': 'FAC-M16', 'to': ['AREA-FAB-CLEAN']}).to_csv(f'{NEO4J_DIR}/rel_has_area.csv', index=False)
-    # Area -> VF
     master['vf_areas'][['area_id', 'id']].rename(columns={'area_id':'from', 'id':'to'}).to_csv(f'{NEO4J_DIR}/rel_hosts_vf.csv', index=False)
-    # Family -> Product
     master['products'][['family_id', 'id']].rename(columns={'family_id':'from', 'id':'to'}).to_csv(f'{NEO4J_DIR}/rel_includes_product.csv', index=False)
-    # Account -> SubAccount
     master['sub_accounts'][['account_id', 'id']].rename(columns={'account_id':'from', 'id':'to'}).to_csv(f'{NEO4J_DIR}/rel_has_sub.csv', index=False)
-    # SubAccount -> Item
     master['items'][['sub_account_id', 'id']].rename(columns={'sub_account_id':'from', 'id':'to'}).to_csv(f'{NEO4J_DIR}/rel_includes_item.csv', index=False)
 
-    # VF State -> VF (Reverse link for lookup if needed, or just rely on id parsing. Let's add explicit link for cleaner graph)
-    # Actually schema: `(:VFArea)-[:HAS_STATE]->(:MonthlyVFState)` ? The prompt implies TS linked list.
-    # Usually we want `(:VFArea)-[:HAS_STATE]->(:MonthlyVFState)`.
-    # Let's generate it.
+    # VF State -> VF
     vf_state_rel = trans['vf_states'][['vf_id', 'id']].rename(columns={'vf_id':'from', 'id':'to'})
     vf_state_rel.to_csv(f'{NEO4J_DIR}/rel_vf_has_state.csv', index=False)
 
     # Product -> Product State
     prod_state_rel = trans['prod_states'][['prod_id', 'id']].rename(columns={'prod_id':'from', 'id':'to'})
     prod_state_rel.to_csv(f'{NEO4J_DIR}/rel_prod_has_state.csv', index=False)
-
 
     print("Done.")
 
