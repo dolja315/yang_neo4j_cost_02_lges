@@ -1093,7 +1093,7 @@ def expand_node(node_id):
         with neo4j_conn.driver.session() as session:
             query = """
             MATCH (n)
-            WHERE elementId(n) = $node_id
+            WHERE elementId(n) = $node_id OR n.id = $node_id
             MATCH (n)-[r]-(connected)
             RETURN n, 
                    connected,
@@ -2021,6 +2021,114 @@ def get_root_cause_graph(variance_id):
         print(f"Error in get_root_cause_graph: {e}")
         # Fallback
         return expand_node(variance_id)
+
+
+# ==========================================
+# SK Hynix v2 Specific Endpoints
+# ==========================================
+
+@app.route('/api/skhynix/process-status', methods=['GET'])
+def get_skhynix_process_status():
+    """Get latest process status (Heatmap) based on MonthlyVFState"""
+    month = request.args.get('month') # Optional filter, defaults to latest available
+
+    query = """
+    MATCH (vf:VFArea)
+    OPTIONAL MATCH (vf)-[:HAS_STATE]->(s:MonthlyVFState)
+    WHERE ($month IS NULL OR s.month = $month)
+    WITH vf, s ORDER BY s.month DESC
+    WITH vf, head(collect(s)) as latest_state
+
+    // Check for symptoms
+    OPTIONAL MATCH (latest_state)-[:HAS_SYMPTOM]->(sym:Symptom)
+
+    RETURN vf.id as id,
+           vf.name as name,
+           vf.type as type,
+           latest_state.id as state_id,
+           latest_state.month as month,
+           latest_state.total_cost as total_cost,
+           count(sym) as symptom_count
+    """
+
+    with neo4j_conn.driver.session() as session:
+        result = session.run(query, month=month).data()
+
+        # Calculate Risk Level
+        # logic: symptom_count * 10 + random variance check (simulated)
+        for row in result:
+            row['risk_level'] = 0
+            if row['symptom_count'] > 0:
+                row['risk_level'] = 20 # High risk
+            elif row['total_cost'] and row['total_cost'] > 1000000: # Threshold example
+                 pass
+
+        return jsonify(result)
+
+@app.route('/api/skhynix/alerts', methods=['GET'])
+def get_skhynix_alerts():
+    """Get recent alerts (States with Symptoms)"""
+    query = """
+    MATCH (s:MonthlyVFState)-[:HAS_SYMPTOM]->(sym:Symptom)
+    MATCH (vf:VFArea)-[:HAS_STATE]->(s)
+    RETURN s.id as state_id,
+           s.month as month,
+           vf.name as process_name,
+           sym.name as symptom,
+           s.total_cost as cost
+    ORDER BY s.month DESC, s.total_cost DESC
+    LIMIT 10
+    """
+    with neo4j_conn.driver.session() as session:
+        result = session.run(query).data()
+        return jsonify(result)
+
+@app.route('/api/skhynix/waterfall/<node_id>', methods=['GET'])
+def get_skhynix_waterfall(node_id):
+    """Cost breakdown for a MonthlyVFState (Materials)"""
+    # Pattern: (MaterialItem)-[CONTRIBUTES_TO]->(MonthlyVFState)
+
+    query = """
+    MATCH (s:MonthlyVFState {id: $node_id})
+    OPTIONAL MATCH (m:MaterialItem)-[r:CONTRIBUTES_TO]->(s)
+    RETURN m.name as item, r.amount as amount
+    """
+
+    with neo4j_conn.driver.session() as session:
+        result = session.run(query, node_id=node_id).data()
+
+        # Format for waterfall
+        breakdown = [{'label': row['item'], 'value': row['amount']} for row in result if row['item']]
+        total = sum(item['value'] for item in breakdown)
+
+        return jsonify({
+            'total': total,
+            'breakdown': breakdown
+        })
+
+@app.route('/api/skhynix/mom/<product_id>', methods=['GET'])
+def get_skhynix_mom(product_id):
+    """MoM Cost Trend for Product"""
+    query = """
+    MATCH (p:Product {id: $product_id})-[:HAS_STATE]->(s:MonthlyProductState)
+    RETURN s.month as month, s.unit_cost as unit_cost
+    ORDER BY s.month ASC
+    """
+    with neo4j_conn.driver.session() as session:
+        result = session.run(query, product_id=product_id).data()
+        return jsonify(result)
+
+@app.route('/api/skhynix/events', methods=['GET'])
+def get_skhynix_events():
+    """Get External Events"""
+    query = """
+    MATCH (e:ExternalEvent)
+    RETURN e.id as id, e.date as date, e.title as title, e.description as description, e.category as category
+    ORDER BY e.date DESC
+    """
+    with neo4j_conn.driver.session() as session:
+        result = session.run(query).data()
+        return jsonify(result)
 
 
 if __name__ == '__main__':

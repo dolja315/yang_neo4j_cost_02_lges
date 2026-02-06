@@ -1,0 +1,7 @@
+id,name,type,area_id
+VF-PHOTO,Photolithography,Wafer Fab,AREA-FAB-CLEAN
+VF-ETCH,Etching,Wafer Fab,AREA-FAB-CLEAN
+VF-DEPO,Deposition,Wafer Fab,AREA-FAB-CLEAN
+VF-TSV,Through Silicon Via,Packaging,AREA-FAB-CLEAN
+VF-MR-MUF,MR-MUF Reflow,Packaging,AREA-FAB-CLEAN
+VF-TEST-PKG,Final Test,Packaging,AREA-FAB-CLEAN

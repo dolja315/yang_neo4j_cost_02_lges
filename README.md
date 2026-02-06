@@ -151,6 +151,30 @@ LIMIT 100
 # analysis/02_variance_analysis.cypher 파일의 쿼리 활용
 ```
 
+## 반도체 원가 관리 대시보드 (SK Hynix V2)
+
+**2025년 업데이트된 V2 시나리오**를 통해 월별 원가 흐름과 근본 원인을 심층 분석할 수 있습니다.
+
+### 1. 데이터 생성 및 로드
+```bash
+# V2 데이터 생성 (2025-01 ~ 2026-01)
+python generate_data_skhynix_v2.py
+
+# Neo4j 로드 (기존 데이터 삭제됨)
+python upload_skhynix_v2.py
+```
+
+### 2. 통합 대시보드 실행
+```bash
+python visualization/graph_api_server.py
+```
+`http://localhost:8000/` 접속 후 **"Process Monitoring"** 탭 확인.
+
+### 3. 주요 분석 시나리오
+- **Scenario A (2025-06)**: 원자재 가격 폭등 (PR EUV) → VF-PHOTO 공정 원가 급등
+- **Scenario B (2025-09)**: 공정 수율 저하 (HBM MR-MUF) → Micro Void 불량 발생
+- **Scenario C (2025-11)**: 생산량 증대 (AI 수요) → 단위 원가 하락 효과
+
 ## 주요 기능
 
 ### 1. 전통적 RDB 시스템 참조

@@ -1,0 +1,5 @@
+id,name,unit,sub_account_id,base_price
+ITEM-WAFER-12,12-inch Polished Wafer,EA,SUB-WAFER,500
+ITEM-PR-EUV,EUV Photoresist,L,SUB-CHEM,2000
+ITEM-LMC-H,Liquid Molding Compound (High Grade),KG,SUB-PKG-MAT,150
+ITEM-HBM-BASE,Base Die,EA,SUB-WAFER,50
