@@ -1,2 +1,5 @@
 id,name,type
 FACT-MAT-BATCH,Bad Batch Issue,Material
+FACT-EQP-CAL,Calibration Drift,Machine
+FACT-ENV-HUM,Humidity Spike,Environment
+FACT-OP-ERR,Operator Miss,Man

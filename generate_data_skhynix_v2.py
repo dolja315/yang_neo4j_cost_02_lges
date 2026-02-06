@@ -100,9 +100,27 @@ def generate_master_data():
             'base_price': base
         })
 
-    # Symptoms & Factors
-    symptoms = [{'id': 'SYMP-VOID', 'name': 'Micro Voids'}]
-    factors = [{'id': 'FACT-MAT-BATCH', 'name': 'Bad Batch Issue', 'type': 'Material'}]
+    # Root Cause Analysis Master Data (Symptoms, Factors, Causes)
+    symptoms = [
+        {'id': 'SYMP-VOID', 'name': 'Micro Voids'},
+        {'id': 'SYMP-CRACK', 'name': 'Wafer Crack'},
+        {'id': 'SYMP-DIM', 'name': 'Dimension Error'},
+        {'id': 'SYMP-ELEC', 'name': 'Electrical Fail'}
+    ]
+
+    factors = [
+        {'id': 'FACT-MAT-BATCH', 'name': 'Bad Batch Issue', 'type': 'Material'},
+        {'id': 'FACT-EQP-CAL', 'name': 'Calibration Drift', 'type': 'Machine'},
+        {'id': 'FACT-ENV-HUM', 'name': 'Humidity Spike', 'type': 'Environment'},
+        {'id': 'FACT-OP-ERR', 'name': 'Operator Miss', 'type': 'Man'}
+    ]
+
+    causes = [
+        {'id': 'CAUSE-SUP-QUAL', 'name': 'Supplier Quality Issue', 'category': 'External'},
+        {'id': 'CAUSE-PM-SKIP', 'name': 'Preventive Maint Skipped', 'category': 'Internal'},
+        {'id': 'CAUSE-HVAC-FAIL', 'name': 'Clean Room HVAC Fail', 'category': 'Facility'},
+        {'id': 'CAUSE-SOP-VIO', 'name': 'SOP Violation', 'category': 'Internal'}
+    ]
 
     return {
         'companies': pd.DataFrame(companies),
@@ -115,7 +133,8 @@ def generate_master_data():
         'sub_accounts': pd.DataFrame(sub_accounts),
         'items': pd.DataFrame(items),
         'symptoms': pd.DataFrame(symptoms),
-        'factors': pd.DataFrame(factors)
+        'factors': pd.DataFrame(factors),
+        'causes': pd.DataFrame(causes)
     }
 
 # ==========================================
@@ -132,7 +151,11 @@ def generate_transactions(master_data):
     rel_next_vf = []
     rel_next_prod = []
     rel_has_symptom = []
+
+    # Static Relationships (Master Data)
     rel_caused_by = [] # Symptom -> Factor
+    rel_traced_to = [] # Factor -> Cause
+
     rel_impacts = []   # Event -> Item/VF
 
     external_events = []
@@ -141,6 +164,8 @@ def generate_transactions(master_data):
     vf_df = master_data['vf_areas']
     prod_df = master_data['products']
     items_df = master_data['items']
+    symptoms_df = master_data['symptoms']
+    factors_df = master_data['factors']
 
     all_vf_ids = vf_df['id'].tolist()
     all_item_ids = items_df['id'].tolist()
@@ -325,9 +350,15 @@ def generate_transactions(master_data):
                     'qty': round(item_data['qty'], 2)
                 })
 
-            # Scenario B: Symptom Link
+            # Scenario B: Symptom Link (Core)
             if vf_id == 'VF-MR-MUF' and month == '2025-09':
                 rel_has_symptom.append({'from': state_id, 'to': 'SYMP-VOID'})
+
+            # Random "Noise" Symptoms for Synthetic Data
+            # Low probability of random issue
+            elif random.random() < 0.05:
+                random_sym = random.choice(symptoms_df['id'].tolist())
+                rel_has_symptom.append({'from': state_id, 'to': random_sym})
 
             # Relations: NEXT_MONTH
             if vf_id in prev_vf_states:
@@ -393,8 +424,23 @@ def generate_transactions(master_data):
                 rel_next_prod.append({'from': prev_prod_states[p_id], 'to': state_id})
             prev_prod_states[p_id] = state_id
 
-    # Symptom -> Factor (Static)
-    rel_caused_by.append({'from': 'SYMP-VOID', 'to': 'FACT-MAT-BATCH'})
+    # Master Data Relationships: Symptom -> Factor -> Cause
+    # Define mappings
+    # SYMP-VOID -> FACT-MAT-BATCH -> CAUSE-SUP-QUAL
+    # SYMP-CRACK -> FACT-EQP-CAL -> CAUSE-PM-SKIP
+    # SYMP-DIM -> FACT-OP-ERR -> CAUSE-SOP-VIO
+    # SYMP-ELEC -> FACT-ENV-HUM -> CAUSE-HVAC-FAIL
+
+    rca_mappings = [
+        ('SYMP-VOID', 'FACT-MAT-BATCH', 'CAUSE-SUP-QUAL'),
+        ('SYMP-CRACK', 'FACT-EQP-CAL', 'CAUSE-PM-SKIP'),
+        ('SYMP-DIM', 'FACT-OP-ERR', 'CAUSE-SOP-VIO'),
+        ('SYMP-ELEC', 'FACT-ENV-HUM', 'CAUSE-HVAC-FAIL')
+    ]
+
+    for sym, fact, cause in rca_mappings:
+        rel_caused_by.append({'from': sym, 'to': fact})
+        rel_traced_to.append({'from': fact, 'to': cause})
 
     return {
         'vf_states': pd.DataFrame(vf_states),
@@ -406,6 +452,7 @@ def generate_transactions(master_data):
         'rel_next_prod': pd.DataFrame(rel_next_prod),
         'rel_has_symptom': pd.DataFrame(rel_has_symptom),
         'rel_caused_by': pd.DataFrame(rel_caused_by),
+        'rel_traced_to': pd.DataFrame(rel_traced_to),
         'rel_impacts': pd.DataFrame(rel_impacts)
     }
 
@@ -433,6 +480,7 @@ def main():
     master['items'].to_csv(f'{NEO4J_DIR}/material_items.csv', index=False)
     master['symptoms'].to_csv(f'{NEO4J_DIR}/symptoms_v2.csv', index=False)
     master['factors'].to_csv(f'{NEO4J_DIR}/factors_v2.csv', index=False)
+    master['causes'].to_csv(f'{NEO4J_DIR}/causes_v2.csv', index=False)
 
     # Export Transactions
     trans['vf_states'].to_csv(f'{NEO4J_DIR}/monthly_vf_states.csv', index=False)
@@ -446,6 +494,7 @@ def main():
     trans['rel_next_prod'].to_csv(f'{NEO4J_DIR}/rel_next_prod.csv', index=False)
     trans['rel_has_symptom'].to_csv(f'{NEO4J_DIR}/rel_has_symptom.csv', index=False)
     trans['rel_caused_by'].to_csv(f'{NEO4J_DIR}/rel_caused_by_v2.csv', index=False)
+    trans['rel_traced_to'].to_csv(f'{NEO4J_DIR}/rel_traced_to_root.csv', index=False)
     trans['rel_impacts'].to_csv(f'{NEO4J_DIR}/rel_impacts.csv', index=False)
 
     # Helper Relationships for Hierarchy

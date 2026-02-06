@@ -22,6 +22,7 @@ CREATE CONSTRAINT prodstate_id IF NOT EXISTS FOR (s:MonthlyProductState) REQUIRE
 
 CREATE CONSTRAINT symptom_id IF NOT EXISTS FOR (sym:Symptom) REQUIRE sym.id IS UNIQUE;
 CREATE CONSTRAINT factor_id IF NOT EXISTS FOR (fact:Factor) REQUIRE fact.id IS UNIQUE;
+CREATE CONSTRAINT cause_id IF NOT EXISTS FOR (c:Cause) REQUIRE c.id IS UNIQUE;
 CREATE CONSTRAINT event_id IF NOT EXISTS FOR (evt:ExternalEvent) REQUIRE evt.id IS UNIQUE;
 
 // ==========================================
@@ -71,6 +72,10 @@ SET s.name = row.name;
 LOAD CSV WITH HEADERS FROM 'file:///factors_v2.csv' AS row
 MERGE (f:Factor {id: row.id})
 SET f.name = row.name, f.type = row.type;
+
+LOAD CSV WITH HEADERS FROM 'file:///causes_v2.csv' AS row
+MERGE (c:Cause {id: row.id})
+SET c.name = row.name, c.category = row.category;
 
 LOAD CSV WITH HEADERS FROM 'file:///external_events.csv' AS row
 MERGE (e:ExternalEvent {id: row.id})
@@ -159,6 +164,10 @@ MERGE (a)-[:HAS_SYMPTOM]->(b);
 LOAD CSV WITH HEADERS FROM 'file:///rel_caused_by_v2.csv' AS row
 MATCH (a:Symptom {id: row.from}), (b:Factor {id: row.to})
 MERGE (a)-[:CAUSED_BY]->(b);
+
+LOAD CSV WITH HEADERS FROM 'file:///rel_traced_to_root.csv' AS row
+MATCH (a:Factor {id: row.from}), (b:Cause {id: row.to})
+MERGE (a)-[:TRACED_TO_ROOT]->(b);
 
 LOAD CSV WITH HEADERS FROM 'file:///rel_impacts.csv' AS row
 MATCH (a:ExternalEvent {id: row.from})
