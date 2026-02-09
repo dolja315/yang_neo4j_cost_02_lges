@@ -258,11 +258,11 @@
         async function loadData() {
             try {
                 // 요약 데이터
-                const summaryRes = await fetch('http://localhost:8000/api/summary');
+                const summaryRes = await fetch('/api/summary');
                 const summary = await summaryRes.json();
                 
                 // 전체 통계
-                const overviewRes = await fetch('http://localhost:8000/api/overview');
+                const overviewRes = await fetch('/api/overview');
                 const overview = await overviewRes.json();
                 
                 // 데이터 표시
