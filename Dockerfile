@@ -17,4 +17,4 @@ EXPOSE 8000
 ENV NAME World
 
 # Run upload_to_neo4j.py when the container launches, then start gunicorn
-CMD ["sh", "-c", "python upload_to_neo4j.py && gunicorn --bind 0.0.0.0:8000 visualization.graph_api_server:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:8000 visualization.graph_api_server:app"]
